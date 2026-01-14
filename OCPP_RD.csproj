@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B0BBBFB9-7740-4248-B681-59784C13DAC8}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>OCPP_RD</RootNamespace>
+    <AssemblyName>OCPP_RD</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+    <TargetFrameworkProfile />
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>packages\Newtonsoft.Json.13.0.4\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="ChargingSessionInfo.cs" />
+    <Compile Include="ChargingStationInterface\WallBoxCopperSB.cs" />
+    <Compile Include="Enumerators.cs" />
+    <Compile Include="ChargingStationInterface\IConnector.cs" />
+    <Compile Include="ChargingStation.cs" />
+    <Compile Include="Location.cs" />
+    <Compile Include="OCPP1.6 Models\AuthorizeRequest.cs" />
+    <Compile Include="OCPP1.6 Models\AuthorizeResponse.cs" />
+    <Compile Include="OCPP1.6 Models\BootNotificationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\BootNotificationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\CancelReservationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\CancelReservationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\ChangeAvailabilityRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ChangeAvailabilityResponse.cs" />
+    <Compile Include="OCPP1.6 Models\ChangeConfigurationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ChangeConfigurationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\ClearCacheRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ClearCacheResponse.cs" />
+    <Compile Include="OCPP1.6 Models\ClearChargingProfileRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ClearChargingProfileResponse.cs" />
+    <Compile Include="OCPP1.6 Models\DataTransferRequest.cs" />
+    <Compile Include="OCPP1.6 Models\DataTransferResponse.cs" />
+    <Compile Include="OCPP1.6 Models\DiagnosticsStatusNotificationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\DiagnosticsStatusNotificationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\FirmwareStatusNotificationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\FirmwareStatusNotificationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\GetCompositeScheduleRequest.cs" />
+    <Compile Include="OCPP1.6 Models\GetCompositeScheduleResponse.cs" />
+    <Compile Include="OCPP1.6 Models\GetConfigurationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\GetConfigurationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\GetDiagnosticsRequest.cs" />
+    <Compile Include="OCPP1.6 Models\GetDiagnosticsResponse.cs" />
+    <Compile Include="OCPP1.6 Models\GetLocalListVersionRequest.cs" />
+    <Compile Include="OCPP1.6 Models\GetLocalListVersionResponse.cs" />
+    <Compile Include="OCPP1.6 Models\HeartbeatRequest.cs" />
+    <Compile Include="OCPP1.6 Models\HeartbeatResponse.cs" />
+    <Compile Include="OCPP1.6 Models\IdTagInfo.cs" />
+    <Compile Include="OCPP1.6 Models\MeterValue.cs" />
+    <Compile Include="OCPP1.6 Models\MeterValuesRequest.cs" />
+    <Compile Include="OCPP1.6 Models\MeterValuesResponse.cs" />
+    <Compile Include="OCPP1.6 Models\RemoteStartTransactionRequest.cs" />
+    <Compile Include="OCPP1.6 Models\RemoteStartTransactionResponse.cs" />
+    <Compile Include="OCPP1.6 Models\RemoteStopTransactionRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ReserveNowRequest.cs" />
+    <Compile Include="OCPP1.6 Models\ReserveNowResponse.cs" />
+    <Compile Include="OCPP1.6 Models\ResetRequest.cs" />
+    <Compile Include="OCPP1.6 Models\SampledValue.cs" />
+    <Compile Include="OCPP1.6 Models\SendLocalListRequest.cs" />
+    <Compile Include="OCPP1.6 Models\SendLocalListResponse.cs" />
+    <Compile Include="OCPP1.6 Models\SetChargingProfileRequest.cs" />
+    <Compile Include="OCPP1.6 Models\SetChargingProfileResponse.cs" />
+    <Compile Include="OCPP1.6 Models\StartTransactionRequest.cs" />
+    <Compile Include="OCPP1.6 Models\StartTransactionResponse.cs" />
+    <Compile Include="OCPP1.6 Models\StatusNotificationRequest.cs" />
+    <Compile Include="OCPP1.6 Models\StatusNotificationResponse.cs" />
+    <Compile Include="OCPP1.6 Models\StopTransactionRequest.cs" />
+    <Compile Include="OCPP1.6 Models\StopTransactionResponse.cs" />
+    <Compile Include="OCPP1.6 Models\TriggerMessageRequest.cs" />
+    <Compile Include="OCPP1.6 Models\TriggerMessageResponse.cs" />
+    <Compile Include="OCPP1.6 Models\UnlockConnectorRequest.cs" />
+    <Compile Include="OCPP1.6 Models\UnlockConnectorResponse.cs" />
+    <Compile Include="OCPP1.6 Models\UpdateFirmwareRequest.cs" />
+    <Compile Include="OCPP1.6 Models\UpdateFirmwareResponse.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="DataBase\DBModels\" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
