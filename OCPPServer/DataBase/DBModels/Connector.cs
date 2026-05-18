@@ -65,6 +65,13 @@ namespace OCPPServer.DataBase.DBModels
         [Required]
         public DateTime CreatedAt { get; set; }
 
+        // ---- Admin-editable info ----
+
+        public string? Name { get; set; }
+        public string? Address { get; set; }
+        public double? Latitude { get; set; }
+        public double? Longitude { get; set; }
+
         // ---- Relationships ----
 
         // many Connectors -> 1 ChargingStation

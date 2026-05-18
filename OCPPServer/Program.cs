@@ -104,5 +104,46 @@ app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId) =
     });
 });
 
+// 5. ADMIN ENDPOINTS
+app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
+{
+    var chargers = await db.Connectors
+        .OrderBy(c => c.OcppId)
+        .Select(c => new
+        {
+            c.OcppId,
+            c.Name,
+            c.Address,
+            c.Latitude,
+            c.Longitude,
+            c.Vendor,
+            c.ChargePointModel,
+            c.FirmwareVersion,
+            status = c.Status.ToString(),
+            c.LastUpdate,
+            c.CreatedAt,
+            isConnected = ChargingStationConnections.Get(c.OcppId) != null
+        })
+        .ToListAsync();
+
+    return Results.Ok(chargers);
+});
+
+app.MapPut("/api/admin/chargers/{ocppId}", async (string ocppId, ChargerInfoUpdate update, ChargingDBContext db) =>
+{
+    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+    if (charger is null) return Results.NotFound($"Charger '{ocppId}' not found.");
+
+    charger.Name = update.Name;
+    charger.Address = update.Address;
+    charger.Latitude = update.Latitude;
+    charger.Longitude = update.Longitude;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { charger.OcppId, charger.Name, charger.Address, charger.Latitude, charger.Longitude });
+});
+
 // RUN THE APPLICATION
 app.Run();
+
+record ChargerInfoUpdate(string? Name, string? Address, double? Latitude, double? Longitude);
