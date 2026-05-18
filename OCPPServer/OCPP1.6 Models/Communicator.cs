@@ -66,6 +66,14 @@ namespace OCPPServer.OCPP1._6_Models
                     await HandleStatusNotification(socket, messageId, payloadCall, stationId, db);
                     break;
 
+                case "StartTransaction":
+                    await HandleStartTransaction(socket, messageId, payloadCall, stationId);
+                    break;
+
+                case "StopTransaction":
+                    await HandleStopTransaction(socket, messageId, stationId);
+                    break;
+
                 case "MeterValue":
                     await HandleMeterValueNotification(socket, messageId, payloadCall, stationId, db);
                     break;
@@ -172,6 +180,29 @@ namespace OCPPServer.OCPP1._6_Models
             await SendCallResult(socket, messageId, responsePayload);
         }
 
+        static async Task HandleStartTransaction(WebSocket socket, string messageId, JObject payload, string stationId)
+        {
+            var transactionId = ChargingStationConnections.AssignTransaction(stationId);
+            Console.WriteLine($"StartTransaction from {stationId}, assigned transactionId={transactionId}");
+
+            var response = new JObject
+            {
+                ["transactionId"] = transactionId,
+                ["idTagInfo"] = new JObject { ["status"] = "Accepted" }
+            };
+            await SendCallResult(socket, messageId, response);
+        }
+
+        static async Task HandleStopTransaction(WebSocket socket, string messageId, string stationId)
+        {
+            Console.WriteLine($"StopTransaction from {stationId}");
+            ChargingStationConnections.ClearTransaction(stationId);
+            await SendCallResult(socket, messageId, new JObject
+            {
+                ["idTagInfo"] = new JObject { ["status"] = "Accepted" }
+            });
+        }
+
         static async Task HandleMeterValueNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
             var req = payload.ToObject<MeterValuesRequest>();
@@ -219,14 +250,15 @@ namespace OCPPServer.OCPP1._6_Models
             return response;
         }
 
-        public static async Task<JObject> SendStopCharging(WebSocket socket)
+        public static async Task<JObject> SendStopCharging(WebSocket socket, string stationId)
         {
+            var transactionId = ChargingStationConnections.GetTransaction(stationId);
+
             var payload = new JObject
             {
-                ["idTag"] = "TEST123"
+                ["transactionId"] = transactionId ?? 0
             };
 
-            // This now WAITS for CALLRESULT
             var response = await SendCallAndWaitAsync(
                 socket,
                 "RemoteStopTransaction",

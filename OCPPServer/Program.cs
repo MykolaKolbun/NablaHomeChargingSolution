@@ -96,7 +96,7 @@ app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId) =
     var socket = ChargingStationConnections.Get(stationId);
     if (socket == null || socket.State != WebSocketState.Open)
         return Results.NotFound("Charging station not connected");
-    await Communicator.SendStopCharging(socket);
+    await Communicator.SendStopCharging(socket, stationId);
     return Results.Ok(new
     {
         stationId,
