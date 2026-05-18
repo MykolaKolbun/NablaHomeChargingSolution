@@ -74,6 +74,7 @@ namespace OCPPServer.DataBase.DBModels
         public bool IsFastCharger { get; set; } = false;
         public bool ShowOnMap { get; set; } = true;
         public double? MaxPowerKw { get; set; }
+        public int NumberOfConnectors { get; set; } = 1;
 
         // ---- Relationships ----
 
