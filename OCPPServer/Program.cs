@@ -116,6 +116,9 @@ app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
             c.Address,
             c.Latitude,
             c.Longitude,
+            c.IsFastCharger,
+            c.ShowOnMap,
+            c.MaxPowerKw,
             c.Vendor,
             c.ChargePointModel,
             c.FirmwareVersion,
@@ -138,12 +141,15 @@ app.MapPut("/api/admin/chargers/{ocppId}", async (string ocppId, ChargerInfoUpda
     charger.Address = update.Address;
     charger.Latitude = update.Latitude;
     charger.Longitude = update.Longitude;
+    charger.IsFastCharger = update.IsFastCharger;
+    charger.ShowOnMap = update.ShowOnMap;
+    charger.MaxPowerKw = update.MaxPowerKw;
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { charger.OcppId, charger.Name, charger.Address, charger.Latitude, charger.Longitude });
+    return Results.Ok(new { charger.OcppId, charger.Name, charger.Address, charger.Latitude, charger.Longitude, charger.IsFastCharger, charger.ShowOnMap, charger.MaxPowerKw });
 });
 
 // RUN THE APPLICATION
 app.Run();
 
-record ChargerInfoUpdate(string? Name, string? Address, double? Latitude, double? Longitude);
+record ChargerInfoUpdate(string? Name, string? Address, double? Latitude, double? Longitude, bool IsFastCharger, bool ShowOnMap, double? MaxPowerKw);

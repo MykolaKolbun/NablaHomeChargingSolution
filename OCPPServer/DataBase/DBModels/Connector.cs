@@ -71,6 +71,9 @@ namespace OCPPServer.DataBase.DBModels
         public string? Address { get; set; }
         public double? Latitude { get; set; }
         public double? Longitude { get; set; }
+        public bool IsFastCharger { get; set; } = false;
+        public bool ShowOnMap { get; set; } = true;
+        public double? MaxPowerKw { get; set; }
 
         // ---- Relationships ----
 
