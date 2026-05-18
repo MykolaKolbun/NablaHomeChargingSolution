@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using OCPPServer.ChargingStationInterface;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,7 +20,7 @@ namespace OCPP_RD.OCPP1._6_Models
         public string Info { get; set; }
 
         [JsonProperty("status")]
-        public string Status { get; set; }
+        public Enumerators.ChargePointStatus Status { get; set; }
 
         [JsonProperty("timestamp")]
         public DateTime Timestamp { get; set; }
