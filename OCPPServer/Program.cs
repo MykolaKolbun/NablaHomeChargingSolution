@@ -88,6 +88,8 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     {
         ChargingStationConnections.Remove(stationId);
         Console.WriteLine($"Station {stationId} disconnected.");
+        // Tell the app immediately so badges flip to "offline"
+        Communicator.PushDisconnect(stationId);
     }
 });
 

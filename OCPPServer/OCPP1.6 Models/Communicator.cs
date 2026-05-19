@@ -37,7 +37,7 @@ namespace OCPPServer.OCPP1._6_Models
         /// <summary>
         /// Fire-and-forget: tells EVChargingApi to push a SignalR update to app clients.
         /// </summary>
-        private static async Task PushStatusToApi(string ocppId, string status, bool isConnected)
+        private static async Task PushStatusToApi(string ocppId, string status, int connectorId, bool isConnected)
         {
             if (string.IsNullOrEmpty(_apiBaseUrl)) return;
             try
@@ -46,11 +46,17 @@ namespace OCPPServer.OCPP1._6_Models
                     HttpMethod.Post,
                     $"{_apiBaseUrl}/api/internal/charger-status");
                 req.Headers.Add("X-Internal-Key", _internalApiKey);
-                req.Content = JsonContent.Create(new { ocppId, status, isConnected });
+                req.Content = JsonContent.Create(new { ocppId, status, connectorId, isConnected });
                 await _apiHttp.SendAsync(req);
             }
             catch { /* non-critical — app falls back to polled status */ }
         }
+
+        /// <summary>
+        /// Call when the charger WebSocket disconnects so the app shows "offline" immediately.
+        /// </summary>
+        public static void PushDisconnect(string ocppId)
+            => _ = PushStatusToApi(ocppId, "Offline", connectorId: 0, isConnected: false);
 
         public static async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
         {
@@ -242,7 +248,7 @@ namespace OCPPServer.OCPP1._6_Models
             }
 
             // Push live status to EVChargingApi → SignalR → app (fire-and-forget)
-            _ = PushStatusToApi(stationId, statusStr, isConnected: true);
+            _ = PushStatusToApi(stationId, statusStr, connectorId, isConnected: true);
 
             await SendCallResult(socket, messageId, new JObject());
         }
