@@ -205,31 +205,57 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleMeterValueNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
-            var req = payload.ToObject<MeterValuesRequest>();
-            Console.WriteLine($"MeterValue notification");
-            Console.WriteLine($"MeterValue: {req}");
-            var existingConnector = await db.Connectors
-                .FirstOrDefaultAsync(c => c.OcppId == stationId);
+            Console.WriteLine($"MeterValues from {stationId}: {payload}");
 
-            //if (existingConnector == null)
-            //{
-            //    return;
-            //}
-            //else
-            //{
-            //    // Update existing
-            //    existingConnector.Vendor = req.VendorId;
-            //    existingConnector.Status = req.Status;
-            //    existingConnector.LastUpdate = DateTime.UtcNow;
-            //}
-
-            //await db.SaveChangesAsync();
-
-            var responsePayload = new JObject
+            // Parse raw JTokens — avoids enum deserialization issues with strings like
+            // "Energy.Active.Import.Register" that don't map to C# enum names.
+            var meterValues = payload["meterValue"] as JArray;
+            if (meterValues != null)
             {
-            };
+                var lastEntry = meterValues.LastOrDefault();
+                var sampledValues = lastEntry?["sampledValue"] as JArray;
 
-            await SendCallResult(socket, messageId, responsePayload);
+                if (sampledValues != null)
+                {
+                    decimal? energyWh = null;
+
+                    foreach (JToken sv in sampledValues)
+                    {
+                        // Default measurand per OCPP 1.6 spec is Energy.Active.Import.Register
+                        var measurand = sv["measurand"]?.Value<string>() ?? "Energy.Active.Import.Register";
+                        if (!measurand.StartsWith("Energy")) continue;
+
+                        var valueStr = sv["value"]?.Value<string>() ?? "";
+                        var unit     = sv["unit"]?.Value<string>()  ?? "Wh";
+
+                        if (decimal.TryParse(valueStr,
+                                System.Globalization.NumberStyles.Any,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out var val))
+                        {
+                            // Normalise to Wh
+                            energyWh = unit.Equals("kWh", StringComparison.OrdinalIgnoreCase)
+                                ? val * 1000m
+                                : val;
+                            break;
+                        }
+                    }
+
+                    if (energyWh.HasValue)
+                    {
+                        var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
+                        if (connector != null)
+                        {
+                            connector.MeterValue = energyWh.Value;
+                            connector.LastUpdate  = DateTime.UtcNow;
+                            await db.SaveChangesAsync();
+                            Console.WriteLine($"Stored {energyWh.Value} Wh for {stationId}");
+                        }
+                    }
+                }
+            }
+
+            await SendCallResult(socket, messageId, new JObject());
         }
 
         public static async Task<JObject> SendStartCharging(WebSocket socket)

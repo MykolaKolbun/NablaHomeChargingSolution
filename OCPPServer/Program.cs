@@ -110,7 +110,21 @@ app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId) =
     });
 });
 
-// 5. ADMIN ENDPOINTS
+// 5. METER VALUE ENDPOINT (called internally by EVChargingApi)
+app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBContext db) =>
+{
+    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+    if (charger is null) return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        ocppId,
+        energyKwh = Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3),
+        lastUpdate = charger.LastUpdate
+    });
+});
+
+// 6. ADMIN ENDPOINTS
 app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
 {
     var chargers = await db.Connectors
