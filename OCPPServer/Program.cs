@@ -23,6 +23,11 @@ builder.Services.AddDbContext<ChargingDBContext>(options =>
 
 builder.Services.AddSingleton<IOcppCommandService, OcppCommandService>();
 
+builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
+    policy.WithOrigins("https://admin.alternatiview.com.ua")
+          .AllowAnyHeader()
+          .AllowAnyMethod()));
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -32,6 +37,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 2. MIDDLEWARE
+app.UseCors();
 app.UseWebSockets();
 
 // 3. WEBSOCKET ENDPOINT
