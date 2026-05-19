@@ -120,7 +120,22 @@ app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId) =
     });
 });
 
-// 5. METER VALUE ENDPOINT (called internally by EVChargingApi)
+// 5. LIVE STATUS ENDPOINT (called internally by EVChargingApi)
+app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBContext db) =>
+{
+    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+    if (charger is null) return Results.NotFound();
+
+    return Results.Ok(new
+    {
+        ocppId,
+        status      = charger.Status.ToString(),
+        isConnected = ChargingStationConnections.Get(ocppId) != null,
+        lastUpdate  = charger.LastUpdate
+    });
+});
+
+// 5b. METER VALUE ENDPOINT (called internally by EVChargingApi)
 app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBContext db) =>
 {
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
