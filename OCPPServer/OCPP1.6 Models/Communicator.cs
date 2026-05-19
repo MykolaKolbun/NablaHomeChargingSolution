@@ -7,6 +7,7 @@ using OCPPServer.Data;
 using OCPPServer.DataBase.DBModels;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
 
@@ -15,9 +16,41 @@ namespace OCPPServer.OCPP1._6_Models
     public class Communicator
     {
         /// <summary>
-        /// contains pending requests waiting for a response from the charging station
+        /// Pending requests waiting for a response from the charging station.
         /// </summary>
-        private static readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>>_pendingRequests = new();
+        private static readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> _pendingRequests = new();
+
+        // ── SignalR callback ────────────────────────────────────────────────────
+        private static readonly HttpClient _apiHttp = new();
+        private static string _apiBaseUrl    = "";
+        private static string _internalApiKey = "";
+
+        /// <summary>
+        /// Called once at startup from Program.cs to wire up the EVChargingApi callback.
+        /// </summary>
+        public static void Configure(string apiBaseUrl, string internalApiKey)
+        {
+            _apiBaseUrl     = apiBaseUrl;
+            _internalApiKey = internalApiKey;
+        }
+
+        /// <summary>
+        /// Fire-and-forget: tells EVChargingApi to push a SignalR update to app clients.
+        /// </summary>
+        private static async Task PushStatusToApi(string ocppId, string status, bool isConnected)
+        {
+            if (string.IsNullOrEmpty(_apiBaseUrl)) return;
+            try
+            {
+                using var req = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{_apiBaseUrl}/api/internal/charger-status");
+                req.Headers.Add("X-Internal-Key", _internalApiKey);
+                req.Content = JsonContent.Create(new { ocppId, status, isConnected });
+                await _apiHttp.SendAsync(req);
+            }
+            catch { /* non-critical — app falls back to polled status */ }
+        }
 
         public static async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
         {
@@ -208,11 +241,10 @@ namespace OCPPServer.OCPP1._6_Models
                 Console.WriteLine($"[OCPP WARN ] StatusNotification from unknown stationId '{stationId}' — ignoring");
             }
 
-            var responsePayload = new JObject
-            {
-            };
+            // Push live status to EVChargingApi → SignalR → app (fire-and-forget)
+            _ = PushStatusToApi(stationId, statusStr, isConnected: true);
 
-            await SendCallResult(socket, messageId, responsePayload);
+            await SendCallResult(socket, messageId, new JObject());
         }
 
         static async Task HandleStartTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)

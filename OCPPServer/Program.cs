@@ -28,6 +28,11 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
+// Wire up SignalR callback to EVChargingApi
+Communicator.Configure(
+    builder.Configuration["EVChargingApi:BaseUrl"] ?? "",
+    builder.Configuration["InternalApiKey"]        ?? "");
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
