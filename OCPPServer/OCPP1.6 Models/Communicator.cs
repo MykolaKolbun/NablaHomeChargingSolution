@@ -6,6 +6,7 @@ using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
 using OCPPServer.DataBase.DBModels;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
 
@@ -20,38 +21,50 @@ namespace OCPPServer.OCPP1._6_Models
 
         public static async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
         {
-            var message = JArray.Parse(json);
+            JArray message;
+            try { message = JArray.Parse(json); }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OCPP ERR  ] {stationId}: failed to parse JSON — {ex.Message}");
+                return;
+            }
 
-            int messageType = message[0].Value<int>();
-            string messageId = message[1].Value<string>();
+            int    messageType = message[0].Value<int>();
+            string messageId   = message[1].Value<string>();
 
-            // HANDLE RESPONSE FIRST
+            // HANDLE RESPONSE (CALLRESULT / CALLERROR)
             if (messageType == OcppMessageType.CALLRESULT ||
                 messageType == OcppMessageType.CALLERROR)
             {
+                var typeLabel = messageType == OcppMessageType.CALLRESULT ? "CALLRESULT" : "CALLERROR";
                 if (_pendingRequests.TryRemove(messageId, out var tcs))
                 {
+                    Console.WriteLine($"[OCPP ← {typeLabel}] {stationId} msgId={messageId} matched pending request");
                     var payload = messageType == OcppMessageType.CALLRESULT
                         ? (JObject)message[2]
                         : new JObject
                         {
-                            ["errorCode"] = message[2],
+                            ["errorCode"]        = message[2],
                             ["errorDescription"] = message[3]
                         };
-
                     tcs.TrySetResult(payload);
+                }
+                else
+                {
+                    Console.WriteLine($"[OCPP ← {typeLabel}] {stationId} msgId={messageId} — NO matching pending request (already timed out?)");
                 }
                 return;
             }
 
-            // Existing CALL handling (unchanged)
             if (messageType != OcppMessageType.CALL)
+            {
+                Console.WriteLine($"[OCPP WARN ] {stationId}: unknown messageType={messageType}, ignoring");
                 return;
+            }
 
-            string action = message[2].Value<string>();
+            string action      = message[2].Value<string>();
             JObject payloadCall = (JObject)message[3];
-            Console.WriteLine($"Received CALL: {action} from {stationId}");
-            Console.WriteLine($"Payload: {payloadCall}");
+            Console.WriteLine($"[OCPP ← CALL] {stationId}: action={action} payload={payloadCall}");
             switch (action)
             {
                 case "BootNotification":
@@ -210,7 +223,8 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
-            Console.WriteLine($"StopTransaction from {stationId}");
+            Console.WriteLine($"[OCPP STOP ] {stationId}: StopTransaction payload keys=[{string.Join(", ", payload.Properties().Select(p => p.Name))}]");
+            Console.WriteLine($"[OCPP STOP ] meterStop raw value = {payload["meterStop"]}");
             ChargingStationConnections.ClearTransaction(stationId);
 
             // Save meter reading at transaction end
@@ -391,8 +405,10 @@ namespace OCPPServer.OCPP1._6_Models
         /// </summary>
         static async Task SendAsync(WebSocket socket, JArray message)
         {
-            var json = message.ToString(Formatting.None);
+            var json  = message.ToString(Formatting.None);
             var bytes = Encoding.UTF8.GetBytes(json);
+
+            Console.WriteLine($"[OCPP → OUT] {json}");
 
             await socket.SendAsync(
                 bytes,

@@ -54,17 +54,27 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
 
     Console.WriteLine($"Station {stationId} connected.");
 
-    var buffer = new byte[1024 * 4];
+    var buffer = new byte[1024 * 16];
 
     try
     {
         while (webSocket.State == WebSocketState.Open)
         {
-            var result = await webSocket.ReceiveAsync(buffer, CancellationToken.None);
+            // Accumulate fragments until EndOfMessage so large frames aren't truncated
+            using var ms = new System.IO.MemoryStream();
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await webSocket.ReceiveAsync(buffer, CancellationToken.None);
+                if (result.MessageType == WebSocketMessageType.Close) break;
+                ms.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
 
             if (result.MessageType == WebSocketMessageType.Text)
             {
-                var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                var json = Encoding.UTF8.GetString(ms.ToArray());
+                Console.WriteLine($"[OCPP ← IN ] {stationId}: {json}");
                 await Communicator.RouteOcppMessage(webSocket, stationId, json, db);
             }
         }
