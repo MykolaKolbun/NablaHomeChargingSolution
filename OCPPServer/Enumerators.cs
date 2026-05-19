@@ -32,17 +32,21 @@ namespace OCPPServer.ChargingStationInterface
         }
         /// <summary>
         /// Status reported in StatusNotification.req. A status can be reported for the Charge Point main controller
-        /// (connectorId = 0) or for a specific connector.Status for the Charge Point main controller is a subset of the
+        /// (connectorId = 0) or for a specific connector. Status for the Charge Point main controller is a subset of the
         /// enumeration: Available, Unavailable or Faulted.
+        /// Full OCPP 1.6 set (section 7.27).
         /// </summary>
         public enum ChargePointStatus
         {
-            Faulted,
             Available,
             Preparing,
             Charging,
             SuspendedEVSE,
-            SuspendedEV
+            SuspendedEV,
+            Finishing,
+            Reserved,
+            Unavailable,
+            Faulted
         }
     }
 }

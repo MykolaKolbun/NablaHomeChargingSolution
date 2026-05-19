@@ -62,39 +62,49 @@ namespace OCPPServer.OCPP1._6_Models
                 return;
             }
 
-            string action      = message[2].Value<string>();
+            string action       = message[2].Value<string>();
             JObject payloadCall = (JObject)message[3];
             Console.WriteLine($"[OCPP ← CALL] {stationId}: action={action} payload={payloadCall}");
-            switch (action)
+
+            // Wrap in try/catch so a handler exception never crashes the WebSocket connection
+            try
             {
-                case "BootNotification":
-                    await HandleBootNotification(socket, messageId, payloadCall, stationId, db);
-                    break;
+                switch (action)
+                {
+                    case "BootNotification":
+                        await HandleBootNotification(socket, messageId, payloadCall, stationId, db);
+                        break;
 
-                case "Heartbeat":
-                    await HandleHeartbeat(socket, messageId);
-                    break;
+                    case "Heartbeat":
+                        await HandleHeartbeat(socket, messageId);
+                        break;
 
-                case "StatusNotification":
-                    await HandleStatusNotification(socket, messageId, payloadCall, stationId, db);
-                    break;
+                    case "StatusNotification":
+                        await HandleStatusNotification(socket, messageId, payloadCall, stationId, db);
+                        break;
 
-                case "StartTransaction":
-                    await HandleStartTransaction(socket, messageId, payloadCall, stationId, db);
-                    break;
+                    case "StartTransaction":
+                        await HandleStartTransaction(socket, messageId, payloadCall, stationId, db);
+                        break;
 
-                case "StopTransaction":
-                    await HandleStopTransaction(socket, messageId, payloadCall, stationId, db);
-                    break;
+                    case "StopTransaction":
+                        await HandleStopTransaction(socket, messageId, payloadCall, stationId, db);
+                        break;
 
-                case "MeterValue":
-                    await HandleMeterValueNotification(socket, messageId, payloadCall, stationId, db);
-                    break;
+                    case "MeterValue":
+                        await HandleMeterValueNotification(socket, messageId, payloadCall, stationId, db);
+                        break;
 
-                default:
-                    await SendCallError(socket, messageId, "NotSupported",
-                        $"Action {action} not supported");
-                    break;
+                    default:
+                        await SendCallError(socket, messageId, "NotSupported",
+                            $"Action {action} not supported");
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[OCPP ERROR] {stationId} handling {action}: {ex.Message}");
+                try { await SendCallError(socket, messageId, "InternalError", ex.Message); } catch { }
             }
         }
 
@@ -165,26 +175,38 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleStatusNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
-            
-            var req = payload.ToObject<StatusNotificationRequest>();
-            Console.WriteLine($"Status notification");
+            // Parse status as a plain string — avoids enum deserialization exceptions for
+            // values the charger sends that we might not have in the enum yet.
+            var connectorId = payload["connectorId"]?.Value<int>() ?? 0;
+            var statusStr   = payload["status"]?.Value<string>() ?? "";
+            var errorCode   = payload["errorCode"]?.Value<string>() ?? "";
+
+            Console.WriteLine($"[OCPP STATUS] {stationId} connectorId={connectorId} status={statusStr} errorCode={errorCode}");
+
+            // Only update DB for the physical connector (connectorId > 0); connectorId=0 is the charger controller
+            if (connectorId == 0)
+            {
+                await SendCallResult(socket, messageId, new JObject());
+                return;
+            }
 
             var existingConnector = await db.Connectors
                 .FirstOrDefaultAsync(c => c.OcppId == stationId);
 
-            if (existingConnector == null)
+            if (existingConnector != null)
             {
-                return;
+                if (Enum.TryParse<Enumerators.ChargePointStatus>(statusStr, out var parsedStatus))
+                    existingConnector.Status = parsedStatus;
+                else
+                    Console.WriteLine($"[OCPP WARN ] Unknown ChargePointStatus '{statusStr}' — DB status not changed");
+
+                existingConnector.LastUpdate = DateTime.UtcNow;
+                await db.SaveChangesAsync();
             }
             else
             {
-                // Update existing
-                existingConnector.Vendor = req.VendorId;
-                existingConnector.Status = req.Status;
-                existingConnector.LastUpdate = DateTime.UtcNow;
+                Console.WriteLine($"[OCPP WARN ] StatusNotification from unknown stationId '{stationId}' — ignoring");
             }
-
-            await db.SaveChangesAsync();
 
             var responsePayload = new JObject
             {
