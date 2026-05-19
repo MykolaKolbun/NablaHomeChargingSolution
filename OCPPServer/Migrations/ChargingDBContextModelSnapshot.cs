@@ -139,6 +139,12 @@ namespace OCPPServer.Migrations
                     b.Property<double?>("MaxPowerKw")
                         .HasColumnType("double precision");
 
+                    b.Property<decimal?>("MeterStart")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("MeterStop")
+                        .HasColumnType("numeric");
+
                     b.Property<decimal?>("MeterValue")
                         .HasColumnType("numeric");
 

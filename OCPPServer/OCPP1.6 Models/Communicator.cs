@@ -67,11 +67,11 @@ namespace OCPPServer.OCPP1._6_Models
                     break;
 
                 case "StartTransaction":
-                    await HandleStartTransaction(socket, messageId, payloadCall, stationId);
+                    await HandleStartTransaction(socket, messageId, payloadCall, stationId, db);
                     break;
 
                 case "StopTransaction":
-                    await HandleStopTransaction(socket, messageId, stationId);
+                    await HandleStopTransaction(socket, messageId, payloadCall, stationId, db);
                     break;
 
                 case "MeterValue":
@@ -180,10 +180,25 @@ namespace OCPPServer.OCPP1._6_Models
             await SendCallResult(socket, messageId, responsePayload);
         }
 
-        static async Task HandleStartTransaction(WebSocket socket, string messageId, JObject payload, string stationId)
+        static async Task HandleStartTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
             var transactionId = ChargingStationConnections.AssignTransaction(stationId);
             Console.WriteLine($"StartTransaction from {stationId}, assigned transactionId={transactionId}");
+
+            // Save meter reading at transaction start
+            var meterStartRaw = payload["meterStart"]?.Value<decimal?>();
+            if (meterStartRaw.HasValue)
+            {
+                var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
+                if (connector != null)
+                {
+                    connector.MeterStart = meterStartRaw.Value;
+                    connector.MeterStop  = null; // clear previous session's stop value
+                    connector.LastUpdate = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                    Console.WriteLine($"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
+                }
+            }
 
             var response = new JObject
             {
@@ -193,10 +208,29 @@ namespace OCPPServer.OCPP1._6_Models
             await SendCallResult(socket, messageId, response);
         }
 
-        static async Task HandleStopTransaction(WebSocket socket, string messageId, string stationId)
+        static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
             Console.WriteLine($"StopTransaction from {stationId}");
             ChargingStationConnections.ClearTransaction(stationId);
+
+            // Save meter reading at transaction end
+            var meterStopRaw = payload["meterStop"]?.Value<decimal?>();
+            if (meterStopRaw.HasValue)
+            {
+                var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
+                if (connector != null)
+                {
+                    connector.MeterStop  = meterStopRaw.Value;
+                    connector.MeterValue = meterStopRaw.Value; // sync live reading to final value
+                    connector.LastUpdate = DateTime.UtcNow;
+                    await db.SaveChangesAsync();
+                    var consumed = connector.MeterStart.HasValue
+                        ? $"{(meterStopRaw.Value - connector.MeterStart.Value) / 1000m:F3} kWh consumed"
+                        : "no MeterStart on record";
+                    Console.WriteLine($"MeterStop={meterStopRaw.Value} Wh for {stationId} — {consumed}");
+                }
+            }
+
             await SendCallResult(socket, messageId, new JObject
             {
                 ["idTagInfo"] = new JObject { ["status"] = "Accepted" }

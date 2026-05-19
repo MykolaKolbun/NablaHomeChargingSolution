@@ -116,11 +116,18 @@ app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBConte
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
     if (charger is null) return Results.NotFound();
 
+    var sessionKwh = (charger.MeterStart.HasValue && charger.MeterValue.HasValue)
+        ? Math.Round((double)(charger.MeterValue.Value - charger.MeterStart.Value) / 1000, 3)
+        : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
+
     return Results.Ok(new
     {
         ocppId,
-        energyKwh = Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3),
-        lastUpdate = charger.LastUpdate
+        meterStartWh = charger.MeterStart,
+        meterValueWh = charger.MeterValue,
+        meterStopWh  = charger.MeterStop,
+        energyKwh    = sessionKwh,          // kWh consumed in current/last session
+        lastUpdate   = charger.LastUpdate
     });
 });
 
@@ -144,6 +151,9 @@ app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
             c.ChargePointModel,
             c.FirmwareVersion,
             status = c.Status.ToString(),
+            c.MeterStart,
+            c.MeterValue,
+            c.MeterStop,
             c.LastUpdate,
             c.CreatedAt,
             isConnected = ChargingStationConnections.Get(c.OcppId) != null

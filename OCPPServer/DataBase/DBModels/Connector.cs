@@ -50,9 +50,19 @@ namespace OCPPServer.DataBase.DBModels
             = Enumerators.ChargePointStatus.Available;
 
         /// <summary>
-        /// Get or set the current meter value of the Connector.
+        /// Meter reading (Wh) when the current/last transaction started (from StartTransaction).
+        /// </summary>
+        public decimal? MeterStart { get; set; }
+
+        /// <summary>
+        /// Live meter reading (Wh) updated by MeterValues messages during charging.
         /// </summary>
         public decimal? MeterValue { get; set; }
+
+        /// <summary>
+        /// Meter reading (Wh) when the current/last transaction ended (from StopTransaction).
+        /// </summary>
+        public decimal? MeterStop { get; set; }
 
         /// <summary>
         /// Get or set the timestamp of the last update received from the Connector.
