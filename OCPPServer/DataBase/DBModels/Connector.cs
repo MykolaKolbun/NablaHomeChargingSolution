@@ -50,6 +50,12 @@ namespace OCPPServer.DataBase.DBModels
             = Enumerators.ChargePointStatus.Available;
 
         /// <summary>
+        /// UTC timestamp when the current/last transaction started (from StartTransaction).
+        /// Null when no session is active. Used to calculate average charging power.
+        /// </summary>
+        public DateTime? SessionStartedAt { get; set; }
+
+        /// <summary>
         /// Meter reading (Wh) when the current/last transaction started (from StartTransaction).
         /// </summary>
         public decimal? MeterStart { get; set; }

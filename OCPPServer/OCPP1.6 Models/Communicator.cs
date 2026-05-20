@@ -265,9 +265,11 @@ namespace OCPPServer.OCPP1._6_Models
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStart = meterStartRaw.Value;
-                    connector.MeterStop  = null; // clear previous session's stop value
-                    connector.LastUpdate = DateTime.UtcNow;
+                    connector.MeterStart      = meterStartRaw.Value;
+                    connector.MeterValue      = meterStartRaw.Value; // reset so energyKwh = 0 at session start
+                    connector.MeterStop       = null;                // clear previous session's stop value
+                    connector.SessionStartedAt = DateTime.UtcNow;
+                    connector.LastUpdate      = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                     OcppLog.Write($"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
                 }
@@ -294,9 +296,10 @@ namespace OCPPServer.OCPP1._6_Models
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStop  = meterStopRaw.Value;
-                    connector.MeterValue = meterStopRaw.Value; // sync live reading to final value
-                    connector.LastUpdate = DateTime.UtcNow;
+                    connector.MeterStop        = meterStopRaw.Value;
+                    connector.MeterValue       = meterStopRaw.Value; // sync live reading to final value
+                    connector.SessionStartedAt = null;               // session over
+                    connector.LastUpdate       = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                     var consumed = connector.MeterStart.HasValue
                         ? $"{(meterStopRaw.Value - connector.MeterStart.Value) / 1000m:F3} kWh consumed"

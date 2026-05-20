@@ -153,14 +153,25 @@ app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBConte
         ? Math.Round((double)(charger.MeterValue.Value - charger.MeterStart.Value) / 1000, 3)
         : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
 
+    // Average power: only meaningful during an active session with real elapsed time
+    double? avgPowerKw = null;
+    if (charger.SessionStartedAt.HasValue && sessionKwh > 0)
+    {
+        var elapsedHours = (DateTime.UtcNow - charger.SessionStartedAt.Value).TotalHours;
+        if (elapsedHours > 0)
+            avgPowerKw = Math.Round(sessionKwh / elapsedHours, 2);
+    }
+
     return Results.Ok(new
     {
         ocppId,
-        meterStartWh = charger.MeterStart,
-        meterValueWh = charger.MeterValue,
-        meterStopWh  = charger.MeterStop,
-        energyKwh    = sessionKwh,          // kWh consumed in current/last session
-        lastUpdate   = charger.LastUpdate
+        meterStartWh   = charger.MeterStart,
+        meterValueWh   = charger.MeterValue,
+        meterStopWh    = charger.MeterStop,
+        energyKwh      = sessionKwh,      // kWh consumed in current/last session
+        avgPowerKw,                       // average charging power (null when session not active)
+        sessionStartedAt = charger.SessionStartedAt,
+        lastUpdate     = charger.LastUpdate
     });
 });
 
