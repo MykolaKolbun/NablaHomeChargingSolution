@@ -56,6 +56,13 @@ namespace OCPPServer.DataBase.DBModels
         public DateTime? SessionStartedAt { get; set; }
 
         /// <summary>
+        /// OCPP transactionId assigned to the current active session.
+        /// Persisted in DB so it survives server restarts — needed for RemoteStopTransaction.
+        /// Null when no session is active.
+        /// </summary>
+        public int? ActiveTransactionId { get; set; }
+
+        /// <summary>
         /// Meter reading (Wh) when the current/last transaction started (from StartTransaction).
         /// </summary>
         public decimal? MeterStart { get; set; }
@@ -64,6 +71,17 @@ namespace OCPPServer.DataBase.DBModels
         /// Live meter reading (Wh) updated by MeterValues messages during charging.
         /// </summary>
         public decimal? MeterValue { get; set; }
+
+        /// <summary>
+        /// UTC timestamp of the last MeterValues message — used to calculate delivery power.
+        /// </summary>
+        public DateTime? LastMeterValueAt { get; set; }
+
+        /// <summary>
+        /// Instantaneous delivery power (kW) computed from the two most recent MeterValues readings.
+        /// Null when no session is active or only one reading received so far.
+        /// </summary>
+        public double? CurrentPowerKw { get; set; }
 
         /// <summary>
         /// Meter reading (Wh) when the current/last transaction ended (from StopTransaction).

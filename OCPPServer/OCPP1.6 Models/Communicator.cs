@@ -265,11 +265,14 @@ namespace OCPPServer.OCPP1._6_Models
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStart      = meterStartRaw.Value;
-                    connector.MeterValue      = meterStartRaw.Value; // reset so energyKwh = 0 at session start
-                    connector.MeterStop       = null;                // clear previous session's stop value
-                    connector.SessionStartedAt = DateTime.UtcNow;
-                    connector.LastUpdate      = DateTime.UtcNow;
+                    connector.MeterStart          = meterStartRaw.Value;
+                    connector.MeterValue          = meterStartRaw.Value; // reset so energyKwh = 0 at session start
+                    connector.MeterStop           = null;                // clear previous session's stop value
+                    connector.SessionStartedAt    = DateTime.UtcNow;
+                    connector.ActiveTransactionId = transactionId;       // persist so Stop survives restarts
+                    connector.CurrentPowerKw      = null;               // no reading yet
+                    connector.LastMeterValueAt    = null;
+                    connector.LastUpdate          = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                     OcppLog.Write($"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
                 }
@@ -296,10 +299,13 @@ namespace OCPPServer.OCPP1._6_Models
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStop        = meterStopRaw.Value;
-                    connector.MeterValue       = meterStopRaw.Value; // sync live reading to final value
-                    connector.SessionStartedAt = null;               // session over
-                    connector.LastUpdate       = DateTime.UtcNow;
+                    connector.MeterStop           = meterStopRaw.Value;
+                    connector.MeterValue          = meterStopRaw.Value; // sync live reading to final value
+                    connector.SessionStartedAt    = null;               // session over
+                    connector.ActiveTransactionId = null;
+                    connector.CurrentPowerKw      = null;
+                    connector.LastMeterValueAt    = null;
+                    connector.LastUpdate          = DateTime.UtcNow;
                     await db.SaveChangesAsync();
                     var consumed = connector.MeterStart.HasValue
                         ? $"{(meterStopRaw.Value - connector.MeterStart.Value) / 1000m:F3} kWh consumed"
@@ -357,10 +363,21 @@ namespace OCPPServer.OCPP1._6_Models
                         var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                         if (connector != null)
                         {
-                            connector.MeterValue = energyWh.Value;
-                            connector.LastUpdate  = DateTime.UtcNow;
+                            // Calculate delivery power from consecutive readings
+                            var now = DateTime.UtcNow;
+                            if (connector.MeterValue.HasValue && connector.LastMeterValueAt.HasValue)
+                            {
+                                var deltaWh    = (double)(energyWh.Value - connector.MeterValue.Value);
+                                var deltaHours = (now - connector.LastMeterValueAt.Value).TotalHours;
+                                if (deltaHours > 0 && deltaWh >= 0)
+                                    connector.CurrentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
+                            }
+
+                            connector.MeterValue       = energyWh.Value;
+                            connector.LastMeterValueAt = now;
+                            connector.LastUpdate       = now;
                             await db.SaveChangesAsync();
-                            OcppLog.Write($"Stored {energyWh.Value} Wh for {stationId}");
+                            OcppLog.Write($"Stored {energyWh.Value} Wh, power={connector.CurrentPowerKw} kW for {stationId}");
                         }
                     }
                 }
@@ -387,9 +404,17 @@ namespace OCPPServer.OCPP1._6_Models
             return response;
         }
 
-        public static async Task<JObject> SendStopCharging(WebSocket socket, string stationId)
+        public static async Task<JObject> SendStopCharging(WebSocket socket, string stationId, ChargingDBContext db)
         {
-            var transactionId = ChargingStationConnections.GetTransaction(stationId);
+            // Prefer DB-persisted transactionId (survives restarts) over in-memory fallback
+            int? transactionId = ChargingStationConnections.GetTransaction(stationId);
+            if (transactionId == null)
+            {
+                var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
+                transactionId = connector?.ActiveTransactionId;
+            }
+
+            OcppLog.Write($"[OCPP STOP ] {stationId}: sending RemoteStopTransaction transactionId={transactionId}");
 
             var payload = new JObject
             {

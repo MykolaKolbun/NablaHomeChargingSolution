@@ -115,12 +115,12 @@ app.MapPost("/api/chargers/{stationId}/start-session", async (string stationId) 
         status = "SENT"
     });
 });
-app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId) =>
+app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, ChargingDBContext db) =>
 {
     var socket = ChargingStationConnections.Get(stationId);
     if (socket == null || socket.State != WebSocketState.Open)
         return Results.NotFound("Charging station not connected");
-    await Communicator.SendStopCharging(socket, stationId);
+    await Communicator.SendStopCharging(socket, stationId, db);
     return Results.Ok(new
     {
         stationId,
@@ -153,25 +153,16 @@ app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBConte
         ? Math.Round((double)(charger.MeterValue.Value - charger.MeterStart.Value) / 1000, 3)
         : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
 
-    // Average power: only meaningful during an active session with real elapsed time
-    double? avgPowerKw = null;
-    if (charger.SessionStartedAt.HasValue && sessionKwh > 0)
-    {
-        var elapsedHours = (DateTime.UtcNow - charger.SessionStartedAt.Value).TotalHours;
-        if (elapsedHours > 0)
-            avgPowerKw = Math.Round(sessionKwh / elapsedHours, 2);
-    }
-
     return Results.Ok(new
     {
         ocppId,
-        meterStartWh   = charger.MeterStart,
-        meterValueWh   = charger.MeterValue,
-        meterStopWh    = charger.MeterStop,
-        energyKwh      = sessionKwh,      // kWh consumed in current/last session
-        avgPowerKw,                       // average charging power (null when session not active)
+        meterStartWh     = charger.MeterStart,
+        meterValueWh     = charger.MeterValue,
+        meterStopWh      = charger.MeterStop,
+        energyKwh        = sessionKwh,             // kWh consumed in current/last session
+        currentPowerKw   = charger.CurrentPowerKw, // instantaneous delivery power (null when idle)
         sessionStartedAt = charger.SessionStartedAt,
-        lastUpdate     = charger.LastUpdate
+        lastUpdate       = charger.LastUpdate
     });
 });
 
