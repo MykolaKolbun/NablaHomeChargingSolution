@@ -58,7 +58,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
     ChargingStationConnections.Add(stationId, webSocket);
 
-    Console.WriteLine($"Station {stationId} connected.");
+    OcppLog.Write($"Station {stationId} connected.");
 
     var buffer = new byte[1024 * 16];
 
@@ -80,7 +80,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var json = Encoding.UTF8.GetString(ms.ToArray());
-                Console.WriteLine($"[OCPP ← IN ] {stationId}: {json}");
+                OcppLog.Write($"[OCPP ← IN ] {stationId}: {json}");
                 await Communicator.RouteOcppMessage(webSocket, stationId, json, db);
             }
         }
@@ -88,7 +88,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     finally
     {
         ChargingStationConnections.Remove(stationId);
-        Console.WriteLine($"Station {stationId} disconnected.");
+        OcppLog.Write($"Station {stationId} disconnected.");
         // Tell the app immediately so badges flip to "offline"
         Communicator.PushDisconnect(stationId);
     }
@@ -221,6 +221,35 @@ app.MapDelete("/api/admin/chargers/{ocppId}", async (string ocppId, ChargingDBCo
     db.Connectors.Remove(charger);
     await db.SaveChangesAsync();
     return Results.Ok(new { deleted = ocppId });
+});
+
+// One-shot endpoint: copies all good data from sourceId into targetId, then deletes sourceId.
+// Usage: POST /api/admin/chargers/merge?sourceId=U030&targetId=u030
+app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId, ChargingDBContext db) =>
+{
+    var src = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == sourceId);
+    var tgt = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == targetId);
+    if (src is null) return Results.NotFound($"Source '{sourceId}' not found.");
+    if (tgt is null) return Results.NotFound($"Target '{targetId}' not found.");
+
+    // Copy human-visible / configuration fields from src → tgt (keep tgt's OCPP fields)
+    tgt.Name               = src.Name               ?? tgt.Name;
+    tgt.Address            = src.Address             ?? tgt.Address;
+    tgt.Latitude           = src.Latitude            ?? tgt.Latitude;
+    tgt.Longitude          = src.Longitude           ?? tgt.Longitude;
+    tgt.IsFastCharger      = src.IsFastCharger;
+    tgt.ShowOnMap          = src.ShowOnMap;
+    tgt.MaxPowerKw         = src.MaxPowerKw          ?? tgt.MaxPowerKw;
+    tgt.NumberOfConnectors = src.NumberOfConnectors;
+    tgt.MeterStart         = src.MeterStart          ?? tgt.MeterStart;
+    tgt.MeterValue         = (src.MeterValue > tgt.MeterValue) ? src.MeterValue : tgt.MeterValue;
+    tgt.MeterStop          = src.MeterStop           ?? tgt.MeterStop;
+    tgt.CreatedAt          = src.CreatedAt; // preserve original creation date
+
+    db.Connectors.Remove(src);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { merged = sourceId, into = targetId });
 });
 
 // RUN THE APPLICATION
