@@ -58,6 +58,29 @@ namespace OCPPServer.OCPP1._6_Models
         public static void PushDisconnect(string ocppId)
             => _ = PushStatusToApi(ocppId, "Offline", connectorId: 0, isConnected: false);
 
+        /// <summary>
+        /// Notifies EVChargingApi of the OCPP transactionId so it can be stored on the session.
+        /// Fire-and-forget; failure is non-critical (ActiveTransactionId in OCPP DB is the fallback).
+        /// </summary>
+        private static async Task PushTransactionStartedToApi(string ocppId, int transactionId)
+        {
+            if (string.IsNullOrEmpty(_apiBaseUrl)) return;
+            try
+            {
+                using var req = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{_apiBaseUrl}/api/internal/transaction-started");
+                req.Headers.Add("X-Internal-Key", _internalApiKey);
+                req.Content = JsonContent.Create(new { ocppId, transactionId });
+                await _apiHttp.SendAsync(req);
+                OcppLog.Write($"[OCPP TX   ] {ocppId}: notified EVChargingApi transactionId={transactionId}");
+            }
+            catch (Exception ex)
+            {
+                OcppLog.Write($"[OCPP TX   ] {ocppId}: failed to notify EVChargingApi — {ex.Message}");
+            }
+        }
+
         public static async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
         {
             JArray message;
@@ -284,6 +307,9 @@ namespace OCPPServer.OCPP1._6_Models
                 ["idTagInfo"] = new JObject { ["status"] = "Accepted" }
             };
             await SendCallResult(socket, messageId, response);
+
+            // Notify EVChargingApi so it can store transactionId on the active session
+            _ = PushTransactionStartedToApi(stationId, transactionId);
         }
 
         static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
@@ -404,17 +430,20 @@ namespace OCPPServer.OCPP1._6_Models
             return response;
         }
 
-        public static async Task<JObject> SendStopCharging(WebSocket socket, string stationId, ChargingDBContext db)
+        public static async Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? callerTransactionId, ChargingDBContext db)
         {
-            // Prefer DB-persisted transactionId (survives restarts) over in-memory fallback
-            int? transactionId = ChargingStationConnections.GetTransaction(stationId);
+            // Priority: 1) caller (from EVChargingApi session table)
+            //           2) in-memory (survives within same process lifetime)
+            //           3) OCPP DB Connector.ActiveTransactionId (survives restarts)
+            int? transactionId = callerTransactionId
+                ?? ChargingStationConnections.GetTransaction(stationId);
             if (transactionId == null)
             {
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 transactionId = connector?.ActiveTransactionId;
             }
 
-            OcppLog.Write($"[OCPP STOP ] {stationId}: sending RemoteStopTransaction transactionId={transactionId}");
+            OcppLog.Write($"[OCPP STOP ] {stationId}: sending RemoteStopTransaction transactionId={transactionId} (source: {(callerTransactionId.HasValue ? "session" : transactionId.HasValue ? "fallback" : "none")})");
 
             var payload = new JObject
             {

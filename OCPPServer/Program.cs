@@ -115,12 +115,12 @@ app.MapPost("/api/chargers/{stationId}/start-session", async (string stationId) 
         status = "SENT"
     });
 });
-app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, ChargingDBContext db) =>
+app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, int? transactionId, ChargingDBContext db) =>
 {
     var socket = ChargingStationConnections.Get(stationId);
     if (socket == null || socket.State != WebSocketState.Open)
         return Results.NotFound("Charging station not connected");
-    await Communicator.SendStopCharging(socket, stationId, db);
+    await Communicator.SendStopCharging(socket, stationId, transactionId, db);
     return Results.Ok(new
     {
         stationId,
