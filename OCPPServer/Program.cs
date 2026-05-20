@@ -48,6 +48,7 @@ app.UseWebSockets();
 // 3. WEBSOCKET ENDPOINT
 app.Map("/ws/{stationId}", async (HttpContext context, string stationId, ChargingDBContext db) =>
 {
+    stationId = stationId.ToLowerInvariant(); // normalise so "U030" == "u030"
     if (!context.WebSockets.IsWebSocketRequest)
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
