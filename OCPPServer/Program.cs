@@ -3,7 +3,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OCPP_RD.OCPP1._6_Models;
 using OCPPServer;
-using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
 using OCPPServer.DataBase.DBModels;
 using OCPPServer.OCPP1._6_Models;
@@ -20,8 +19,6 @@ builder.Services.AddSwaggerGen();
 // 1. DATABASE CONFIGURATION
 builder.Services.AddDbContext<ChargingDBContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
-
-builder.Services.AddSingleton<IOcppCommandService, OcppCommandService>();
 
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
     policy.WithOrigins("https://admin.alternatiview.com.ua")

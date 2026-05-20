@@ -110,16 +110,12 @@ namespace OCPPServer.DataBase.DBModels
         public double? MaxPowerKw { get; set; }
         public int NumberOfConnectors { get; set; } = 1;
 
-        // ---- Relationships ----
+        // ---- Informational fields from BootNotification ----
 
-        // many Connectors -> 1 ChargingStation
         /// <summary>
-        /// Get or set the foreign key referencing the associated ChargingStation.
+        /// ChargeBox serial number reported by the charger in BootNotification.
+        /// Stored for reference only — not a FK.
         /// </summary>
-        public string ChargerSN { get; set; }
-        /// <summary>
-        /// Get or set the associated ChargingStation entity.
-        /// </summary>
-        public virtual ChargingStation ChargingStation { get; set; }
+        public string ChargerSN { get; set; } = string.Empty;
     }
 }
