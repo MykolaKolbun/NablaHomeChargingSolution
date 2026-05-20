@@ -130,7 +130,7 @@ namespace OCPPServer.OCPP1._6_Models
                         await HandleStopTransaction(socket, messageId, payloadCall, stationId, db);
                         break;
 
-                    case "MeterValue":
+                    case "MeterValues":
                         await HandleMeterValueNotification(socket, messageId, payloadCall, stationId, db);
                         break;
 
