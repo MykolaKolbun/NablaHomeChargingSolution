@@ -214,6 +214,15 @@ app.MapPut("/api/admin/chargers/{ocppId}", async (string ocppId, ChargerInfoUpda
     return Results.Ok(new { charger.OcppId, charger.Name, charger.Address, charger.Latitude, charger.Longitude, charger.IsFastCharger, charger.ShowOnMap, charger.MaxPowerKw });
 });
 
+app.MapDelete("/api/admin/chargers/{ocppId}", async (string ocppId, ChargingDBContext db) =>
+{
+    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+    if (charger is null) return Results.NotFound($"Charger '{ocppId}' not found.");
+    db.Connectors.Remove(charger);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { deleted = ocppId });
+});
+
 // RUN THE APPLICATION
 app.Run();
 
