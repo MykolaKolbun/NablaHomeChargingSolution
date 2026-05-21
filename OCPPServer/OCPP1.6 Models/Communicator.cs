@@ -1,4 +1,35 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿/**
+ * Communicator.cs — OCPP 1.6J message handler
+ *
+ * This is the core of the OCPP server. It handles all messages exchanged
+ * between the server and physical chargers over WebSocket.
+ *
+ * OCPP 1.6J message format (JSON array):
+ *   CALL        [2, messageId, action, payload]   — request from charger or server
+ *   CALLRESULT  [3, messageId, payload]            — successful response
+ *   CALLERROR   [4, messageId, code, description, details] — error response
+ *
+ * Incoming CALL messages from chargers are handled by Handle* methods:
+ *   HandleBootNotification      — charger registers itself on connect/restart
+ *   HandleHeartbeat             — periodic keep-alive (every ~5 min)
+ *   HandleStatusNotification    — charger reports connector status change
+ *   HandleStartTransaction      — charger confirms a charging session has started
+ *   HandleStopTransaction       — charger confirms a charging session has ended
+ *   HandleMeterValueNotification — periodic energy/power readings during charging
+ *
+ * Outgoing CALL messages we send to chargers:
+ *   SendStartCharging  → RemoteStartTransaction
+ *   SendStopCharging   → RemoteStopTransaction
+ *
+ * Pending requests (_pendingRequests) maps messageId → TaskCompletionSource so
+ * we can await CALLRESULT responses asynchronously without blocking the receive loop.
+ *
+ * Callbacks to EVChargingApi:
+ *   PushStatusToApi          — fires on StatusNotification → EVChargingApi → SignalR → app
+ *   PushTransactionStartedToApi — fires on StartTransaction → stores OCPP transactionId
+ */
+
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OCPP_RD.OCPP1._6_Models;

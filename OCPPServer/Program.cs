@@ -1,3 +1,29 @@
+/**
+ * Program.cs — OCPPServer entry point
+ *
+ * This server has two jobs:
+ *
+ *   1. OCPP WebSocket gateway (/ws/{stationId})
+ *      Physical EV chargers connect here over WebSocket using the OCPP 1.6J
+ *      protocol. Each charger sends messages (BootNotification, Heartbeat,
+ *      StatusNotification, StartTransaction, StopTransaction, MeterValues)
+ *      which are routed through Communicator.RouteOcppMessage().
+ *
+ *   2. REST API for EVChargingApi and the admin panel
+ *      /api/chargers/{id}/start-session  — sends RemoteStartTransaction to charger
+ *      /api/chargers/{id}/stop-session   — sends RemoteStopTransaction to charger
+ *      /api/chargers/{id}/status         — returns live connection status
+ *      /api/chargers/{id}/meter          — returns current meter readings
+ *      /api/admin/chargers               — CRUD for charger records (admin panel)
+ *
+ * Data flow summary:
+ *   Charger → WebSocket → Communicator.RouteOcppMessage() → DB + HTTP callback to EVChargingApi
+ *   EVChargingApi → POST /start-session → Communicator.SendStartCharging() → WebSocket → Charger
+ *
+ * The HttpClient in Communicator (_apiHttp) is configured at startup via
+ * Communicator.Configure() with the EVChargingApi base URL and internal API key.
+ */
+
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -12,40 +38,49 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Swagger
+// ── Swagger (development/admin UI) ─────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// 1. DATABASE CONFIGURATION
+// ── Database ───────────────────────────────────────────────────────────────────
+// The OCPP server has its own PostgreSQL DB (separate from EVChargingApi's DB).
+// It stores one Connector row per charger with live meter readings and status.
 builder.Services.AddDbContext<ChargingDBContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+// ── CORS ───────────────────────────────────────────────────────────────────────
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
     policy.WithOrigins("https://admin.alternatiview.com.ua")
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
-// Wire up SignalR callback to EVChargingApi
+// ── Wire up callback to EVChargingApi ─────────────────────────────────────────
+// Communicator uses these to POST status updates and transaction IDs back to
+// the main API, which in turn pushes them to the app via SignalR.
 Communicator.Configure(
     builder.Configuration["EVChargingApi:BaseUrl"] ?? "",
     builder.Configuration["InternalApiKey"]        ?? "");
 
 var app = builder.Build();
 
+// Auto-apply pending migrations on startup
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
     db.Database.Migrate();
 }
 
-// 2. MIDDLEWARE
+// ── Middleware ──────────────────────────────────────────────────────────────────
 app.UseCors();
-app.UseWebSockets();
+app.UseWebSockets();   // must be before MapXxx so WebSocket upgrades are handled
 
-// 3. WEBSOCKET ENDPOINT
+// ── WebSocket endpoint: OCPP charger connections ───────────────────────────────
+// Each charger connects to /ws/{its-stationId} and stays connected indefinitely.
+// The server reads OCPP messages in a loop until the socket closes.
 app.Map("/ws/{stationId}", async (HttpContext context, string stationId, ChargingDBContext db) =>
 {
-    stationId = stationId.ToLowerInvariant(); // normalise so "U030" == "u030"
+    stationId = stationId.ToLowerInvariant(); // normalise: "U030" == "u030"
+
     if (!context.WebSockets.IsWebSocketRequest)
     {
         context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -54,7 +89,6 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
 
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
     ChargingStationConnections.Add(stationId, webSocket);
-
     OcppLog.Write($"Station {stationId} connected.");
 
     var buffer = new byte[1024 * 16];
@@ -63,7 +97,8 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     {
         while (webSocket.State == WebSocketState.Open)
         {
-            // Accumulate fragments until EndOfMessage so large frames aren't truncated
+            // Accumulate WebSocket frames into a single message.
+            // OCPP messages can be split across multiple frames ("fragmentation").
             using var ms = new System.IO.MemoryStream();
             WebSocketReceiveResult result;
             do
@@ -84,10 +119,10 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     }
     finally
     {
+        // Always clean up the connection entry and notify EVChargingApi on disconnect
         ChargingStationConnections.Remove(stationId);
         OcppLog.Write($"Station {stationId} disconnected.");
-        // Tell the app immediately so badges flip to "offline"
-        Communicator.PushDisconnect(stationId);
+        Communicator.PushDisconnect(stationId); // tells the app to show "offline"
     }
 });
 
@@ -96,36 +131,47 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-// 4. REST API ENDPOINTS
+
+// ── REST API: session control ───────────────────────────────────────────────────
+
+/// <summary>
+/// Called by EVChargingApi to start a session on a charger.
+/// Sends RemoteStartTransaction over the charger's WebSocket.
+/// Returns 404 if the charger is not currently connected.
+/// </summary>
 app.MapPost("/api/chargers/{stationId}/start-session", async (string stationId) =>
 {
     var socket = ChargingStationConnections.Get(stationId);
-
     if (socket == null || socket.State != WebSocketState.Open)
         return Results.NotFound("Charging station not connected");
 
     await Communicator.SendStartCharging(socket);
-    
-    return Results.Ok(new
-    {
-        stationId,
-        status = "SENT"
-    });
+
+    return Results.Ok(new { stationId, status = "SENT" });
 });
+
+/// <summary>
+/// Called by EVChargingApi (or WalletGuardService) to stop a session.
+/// Sends RemoteStopTransaction with the correct transactionId (from session,
+/// in-memory, or OCPP DB — whichever is available).
+/// </summary>
 app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, int? transactionId, ChargingDBContext db) =>
 {
     var socket = ChargingStationConnections.Get(stationId);
     if (socket == null || socket.State != WebSocketState.Open)
         return Results.NotFound("Charging station not connected");
+
     await Communicator.SendStopCharging(socket, stationId, transactionId, db);
-    return Results.Ok(new
-    {
-        stationId,
-        status = "SENT"
-    });
+
+    return Results.Ok(new { stationId, status = "SENT" });
 });
 
-// 5. LIVE STATUS ENDPOINT (called internally by EVChargingApi)
+// ── REST API: status and meter polling (called by EVChargingApi) ───────────────
+
+/// <summary>
+/// Returns the live OCPP status of a charger and whether its WebSocket is open.
+/// Used by EVChargingApi's StationsController to enrich connector status.
+/// </summary>
 app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBContext db) =>
 {
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
@@ -140,7 +186,15 @@ app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBCont
     });
 });
 
-// 5b. METER VALUE ENDPOINT (called internally by EVChargingApi)
+/// <summary>
+/// Returns the current meter readings for a charger.
+/// Called by EVChargingApi's GET /api/sessions/{id}/energy every 10 seconds
+/// to show live energy consumption to the user.
+///
+/// energyKwh = (MeterValue − MeterStart) / 1000 — the kWh consumed in the current session.
+/// currentPowerKw — instantaneous delivery power (computed from consecutive MeterValues).
+/// meterStopWh — set when the charger sends StopTransaction; signals the session is finalised.
+/// </summary>
 app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBContext db) =>
 {
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
@@ -156,38 +210,28 @@ app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBConte
         meterStartWh     = charger.MeterStart,
         meterValueWh     = charger.MeterValue,
         meterStopWh      = charger.MeterStop,
-        energyKwh        = sessionKwh,             // kWh consumed in current/last session
-        currentPowerKw   = charger.CurrentPowerKw, // instantaneous delivery power (null when idle)
+        energyKwh        = sessionKwh,              // kWh consumed in current/last session
+        currentPowerKw   = charger.CurrentPowerKw,  // instantaneous power; null when idle
         sessionStartedAt = charger.SessionStartedAt,
         lastUpdate       = charger.LastUpdate
     });
 });
 
-// 6. ADMIN ENDPOINTS
+// ── REST API: admin panel endpoints ───────────────────────────────────────────
+
+/// <summary>Returns all charger records with their current status and meter values.</summary>
 app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
 {
     var chargers = await db.Connectors
         .OrderBy(c => c.OcppId)
         .Select(c => new
         {
-            c.OcppId,
-            c.Name,
-            c.Address,
-            c.Latitude,
-            c.Longitude,
-            c.IsFastCharger,
-            c.ShowOnMap,
-            c.MaxPowerKw,
-            c.NumberOfConnectors,
-            c.Vendor,
-            c.ChargePointModel,
-            c.FirmwareVersion,
-            status = c.Status.ToString(),
-            c.MeterStart,
-            c.MeterValue,
-            c.MeterStop,
-            c.LastUpdate,
-            c.CreatedAt,
+            c.OcppId, c.Name, c.Address, c.Latitude, c.Longitude,
+            c.IsFastCharger, c.ShowOnMap, c.MaxPowerKw, c.NumberOfConnectors,
+            c.Vendor, c.ChargePointModel, c.FirmwareVersion,
+            status      = c.Status.ToString(),
+            c.MeterStart, c.MeterValue, c.MeterStop,
+            c.LastUpdate, c.CreatedAt,
             isConnected = ChargingStationConnections.Get(c.OcppId) != null
         })
         .ToListAsync();
@@ -195,24 +239,31 @@ app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
     return Results.Ok(chargers);
 });
 
+/// <summary>Updates the admin-editable fields of a charger (name, address, location, etc.).</summary>
 app.MapPut("/api/admin/chargers/{ocppId}", async (string ocppId, ChargerInfoUpdate update, ChargingDBContext db) =>
 {
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
     if (charger is null) return Results.NotFound($"Charger '{ocppId}' not found.");
 
-    charger.Name = update.Name;
-    charger.Address = update.Address;
-    charger.Latitude = update.Latitude;
-    charger.Longitude = update.Longitude;
-    charger.IsFastCharger = update.IsFastCharger;
-    charger.ShowOnMap = update.ShowOnMap;
-    charger.MaxPowerKw = update.MaxPowerKw;
+    charger.Name               = update.Name;
+    charger.Address            = update.Address;
+    charger.Latitude           = update.Latitude;
+    charger.Longitude          = update.Longitude;
+    charger.IsFastCharger      = update.IsFastCharger;
+    charger.ShowOnMap          = update.ShowOnMap;
+    charger.MaxPowerKw         = update.MaxPowerKw;
     charger.NumberOfConnectors = update.NumberOfConnectors;
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { charger.OcppId, charger.Name, charger.Address, charger.Latitude, charger.Longitude, charger.IsFastCharger, charger.ShowOnMap, charger.MaxPowerKw });
+    return Results.Ok(new
+    {
+        charger.OcppId, charger.Name, charger.Address,
+        charger.Latitude, charger.Longitude,
+        charger.IsFastCharger, charger.ShowOnMap, charger.MaxPowerKw
+    });
 });
 
+/// <summary>Deletes a charger record from the OCPP DB.</summary>
 app.MapDelete("/api/admin/chargers/{ocppId}", async (string ocppId, ChargingDBContext db) =>
 {
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
@@ -222,8 +273,10 @@ app.MapDelete("/api/admin/chargers/{ocppId}", async (string ocppId, ChargingDBCo
     return Results.Ok(new { deleted = ocppId });
 });
 
-// One-shot endpoint: copies all good data from sourceId into targetId, then deletes sourceId.
-// Usage: POST /api/admin/chargers/merge?sourceId=U030&targetId=u030
+/// <summary>
+/// One-shot utility: copies all admin-editable fields from sourceId into targetId,
+/// then deletes sourceId. Used to merge duplicate charger records (e.g. "U030" + "u030").
+/// </summary>
 app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId, ChargingDBContext db) =>
 {
     var src = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == sourceId);
@@ -231,7 +284,7 @@ app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId
     if (src is null) return Results.NotFound($"Source '{sourceId}' not found.");
     if (tgt is null) return Results.NotFound($"Target '{targetId}' not found.");
 
-    // Copy human-visible / configuration fields from src → tgt (keep tgt's OCPP fields)
+    // Copy human-visible / config fields from src → tgt; preserve tgt's OCPP runtime fields
     tgt.Name               = src.Name               ?? tgt.Name;
     tgt.Address            = src.Address             ?? tgt.Address;
     tgt.Latitude           = src.Latitude            ?? tgt.Latitude;
@@ -251,7 +304,9 @@ app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId
     return Results.Ok(new { merged = sourceId, into = targetId });
 });
 
-// RUN THE APPLICATION
 app.Run();
 
-record ChargerInfoUpdate(string? Name, string? Address, double? Latitude, double? Longitude, bool IsFastCharger, bool ShowOnMap, double? MaxPowerKw, int NumberOfConnectors);
+// ── Request body types ─────────────────────────────────────────────────────────
+record ChargerInfoUpdate(
+    string? Name, string? Address, double? Latitude, double? Longitude,
+    bool IsFastCharger, bool ShowOnMap, double? MaxPowerKw, int NumberOfConnectors);
