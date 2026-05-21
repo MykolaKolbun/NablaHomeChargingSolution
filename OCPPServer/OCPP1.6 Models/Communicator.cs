@@ -51,66 +51,18 @@ namespace OCPPServer.OCPP1._6_Models
         /// </summary>
         private static readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> _pendingRequests = new();
 
-        // ── SignalR callback ────────────────────────────────────────────────────
-        private static readonly HttpClient _apiHttp = new();
-        private static string _apiBaseUrl    = "";
-        private static string _internalApiKey = "";
+        // ── RabbitMQ event callbacks ───────────────────────────────────────────
+        // All charger lifecycle events are now published to RabbitMQ instead of
+        // calling EVChargingApi directly over HTTP. EVChargingApi's
+        // RabbitMqConsumerService subscribes and pushes SignalR updates to the app.
 
         /// <summary>
-        /// Called once at startup from Program.cs to wire up the EVChargingApi callback.
-        /// </summary>
-        public static void Configure(string apiBaseUrl, string internalApiKey)
-        {
-            _apiBaseUrl     = apiBaseUrl;
-            _internalApiKey = internalApiKey;
-        }
-
-        /// <summary>
-        /// Fire-and-forget: tells EVChargingApi to push a SignalR update to app clients.
-        /// </summary>
-        private static async Task PushStatusToApi(string ocppId, string status, int connectorId, bool isConnected)
-        {
-            if (string.IsNullOrEmpty(_apiBaseUrl)) return;
-            try
-            {
-                using var req = new HttpRequestMessage(
-                    HttpMethod.Post,
-                    $"{_apiBaseUrl}/api/internal/charger-status");
-                req.Headers.Add("X-Internal-Key", _internalApiKey);
-                req.Content = JsonContent.Create(new { ocppId, status, connectorId, isConnected });
-                await _apiHttp.SendAsync(req);
-            }
-            catch { /* non-critical — app falls back to polled status */ }
-        }
-
-        /// <summary>
-        /// Call when the charger WebSocket disconnects so the app shows "offline" immediately.
+        /// Publish a "charger offline" event when the charger's WebSocket closes.
+        /// Called from Program.cs in the finally block of the WebSocket receive loop.
         /// </summary>
         public static void PushDisconnect(string ocppId)
-            => _ = PushStatusToApi(ocppId, "Offline", connectorId: 0, isConnected: false);
-
-        /// <summary>
-        /// Notifies EVChargingApi of the OCPP transactionId so it can be stored on the session.
-        /// Fire-and-forget; failure is non-critical (ActiveTransactionId in OCPP DB is the fallback).
-        /// </summary>
-        private static async Task PushTransactionStartedToApi(string ocppId, int transactionId)
-        {
-            if (string.IsNullOrEmpty(_apiBaseUrl)) return;
-            try
-            {
-                using var req = new HttpRequestMessage(
-                    HttpMethod.Post,
-                    $"{_apiBaseUrl}/api/internal/transaction-started");
-                req.Headers.Add("X-Internal-Key", _internalApiKey);
-                req.Content = JsonContent.Create(new { ocppId, transactionId });
-                await _apiHttp.SendAsync(req);
-                OcppLog.Write($"[OCPP TX   ] {ocppId}: notified EVChargingApi transactionId={transactionId}");
-            }
-            catch (Exception ex)
-            {
-                OcppLog.Write($"[OCPP TX   ] {ocppId}: failed to notify EVChargingApi — {ex.Message}");
-            }
-        }
+            => _ = RabbitMqPublisher.PublishStatusChangedAsync(
+                ocppId, "Offline", connectorId: 0, isConnected: false);
 
         public static async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
         {
@@ -301,8 +253,8 @@ namespace OCPPServer.OCPP1._6_Models
                 OcppLog.Write($"[OCPP WARN ] StatusNotification from unknown stationId '{stationId}' — ignoring");
             }
 
-            // Push live status to EVChargingApi → SignalR → app (fire-and-forget)
-            _ = PushStatusToApi(stationId, statusStr, connectorId, isConnected: true);
+            // Publish status change event → RabbitMQ → EVChargingApi → SignalR → app
+            _ = RabbitMqPublisher.PublishStatusChangedAsync(stationId, statusStr, connectorId, isConnected: true);
 
             await SendCallResult(socket, messageId, new JObject());
         }
@@ -339,8 +291,8 @@ namespace OCPPServer.OCPP1._6_Models
             };
             await SendCallResult(socket, messageId, response);
 
-            // Notify EVChargingApi so it can store transactionId on the active session
-            _ = PushTransactionStartedToApi(stationId, transactionId);
+            // Publish event → RabbitMQ → EVChargingApi stores transactionId on the session
+            _ = RabbitMqPublisher.PublishTransactionStartedAsync(stationId, transactionId);
         }
 
         static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
@@ -375,6 +327,15 @@ namespace OCPPServer.OCPP1._6_Models
             {
                 ["idTagInfo"] = new JObject { ["status"] = "Accepted" }
             });
+
+            // Publish StopTransaction event — EVChargingApi will finalize the session
+            // and push SessionFinalized via SignalR to the app.
+            if (meterStopRaw.HasValue)
+            {
+                var ocppConnector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
+                _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
+                    stationId, meterStopRaw.Value, ocppConnector?.MeterStart);
+            }
         }
 
         static async Task HandleMeterValueNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
@@ -435,6 +396,14 @@ namespace OCPPServer.OCPP1._6_Models
                             connector.LastUpdate       = now;
                             await db.SaveChangesAsync();
                             OcppLog.Write($"Stored {energyWh.Value} Wh, power={connector.CurrentPowerKw} kW for {stationId}");
+
+                        // Publish meter event — EVChargingApi pushes live data to the app
+                        // and checks the wallet balance (event-driven, no more 30-second polling).
+                        _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
+                            stationId,
+                            energyWh.Value,
+                            connector.MeterStart,
+                            connector.CurrentPowerKw);
                         }
                     }
                 }

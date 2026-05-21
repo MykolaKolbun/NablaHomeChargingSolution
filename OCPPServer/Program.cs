@@ -54,13 +54,6 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
-// ── Wire up callback to EVChargingApi ─────────────────────────────────────────
-// Communicator uses these to POST status updates and transaction IDs back to
-// the main API, which in turn pushes them to the app via SignalR.
-Communicator.Configure(
-    builder.Configuration["EVChargingApi:BaseUrl"] ?? "",
-    builder.Configuration["InternalApiKey"]        ?? "");
-
 var app = builder.Build();
 
 // Auto-apply pending migrations on startup
@@ -69,6 +62,14 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
     db.Database.Migrate();
 }
+
+// ── RabbitMQ publisher ────────────────────────────────────────────────────────
+// Connect after migrations so startup ordering issues don't mask DB errors.
+// If RabbitMQ is unreachable, events are simply dropped — not a fatal error.
+await RabbitMqPublisher.ConfigureAsync(
+    host:     app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
+    username: app.Configuration["RabbitMQ:Username"] ?? "guest",
+    password: app.Configuration["RabbitMQ:Password"] ?? "guest");
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
 app.UseCors();
