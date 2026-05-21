@@ -299,6 +299,7 @@ namespace OCPPServer.OCPP1._6_Models
         {
             OcppLog.Write($"[OCPP STOP ] {stationId}: StopTransaction payload keys=[{string.Join(", ", payload.Properties().Select(p => p.Name))}]");
             OcppLog.Write($"[OCPP STOP ] meterStop raw value = {payload["meterStop"]}");
+            var stoppedTxId = payload["transactionId"]?.Value<int?>() ?? 0;
             ChargingStationConnections.ClearTransaction(stationId);
 
             // Save meter reading at transaction end
@@ -334,7 +335,7 @@ namespace OCPPServer.OCPP1._6_Models
             {
                 var ocppConnector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
-                    stationId, meterStopRaw.Value, ocppConnector?.MeterStart);
+                    stationId, stoppedTxId, meterStopRaw.Value, ocppConnector?.MeterStart);
             }
         }
 

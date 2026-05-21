@@ -114,13 +114,14 @@ public static class RabbitMqPublisher
             new { ocppId, transactionId });
 
     /// <summary>
-    /// Charger confirmed StopTransaction. Includes both meterStopWh and
-    /// meterStartWh so EVChargingApi can calculate the real energy delta.
+    /// Charger confirmed StopTransaction. Includes transactionId so EVChargingApi
+    /// can reject stale stop events that belong to an older transaction, plus
+    /// meterStopWh and meterStartWh to calculate the real energy delta.
     /// </summary>
     public static Task PublishTransactionStoppedAsync(
-        string ocppId, decimal meterStopWh, decimal? meterStartWh)
+        string ocppId, int transactionId, decimal meterStopWh, decimal? meterStartWh)
         => PublishAsync("charger.transaction.stopped",
-            new { ocppId, meterStopWh, meterStartWh });
+            new { ocppId, transactionId, meterStopWh, meterStartWh });
 
     /// <summary>
     /// Charger sent MeterValues. Carries live energy and instantaneous power
