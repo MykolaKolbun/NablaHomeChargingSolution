@@ -38,31 +38,37 @@ public static class RabbitMqPublisher
     /// </summary>
     public static async Task ConfigureAsync(string host, string username, string password)
     {
-        try
+        // Retry until RabbitMQ is ready — mirrors the retry loop in EVChargingApi's
+        // RabbitMqConsumerService so startup ordering never causes a silent failure.
+        while (true)
         {
-            var factory = new ConnectionFactory
+            try
             {
-                HostName                 = host,
-                UserName                 = username,
-                Password                 = password,
-                AutomaticRecoveryEnabled = true,   // reconnect after broker restart
-            };
-            _connection = await factory.CreateConnectionAsync();
-            _channel    = await _connection.CreateChannelAsync();
+                var factory = new ConnectionFactory
+                {
+                    HostName                 = host,
+                    UserName                 = username,
+                    Password                 = password,
+                    AutomaticRecoveryEnabled = true,   // reconnect after broker restart
+                };
+                _connection = await factory.CreateConnectionAsync();
+                _channel    = await _connection.CreateChannelAsync();
 
-            // Declare the exchange (idempotent — safe to call on every restart)
-            await _channel.ExchangeDeclareAsync(
-                exchange:   Exchange,
-                type:       ExchangeType.Topic,
-                durable:    true,       // survives broker restart
-                autoDelete: false);
+                // Declare the exchange (idempotent — safe to call on every restart)
+                await _channel.ExchangeDeclareAsync(
+                    exchange:   Exchange,
+                    type:       ExchangeType.Topic,
+                    durable:    true,
+                    autoDelete: false);
 
-            OcppLog.Write($"[RABBIT    ] Connected to '{host}', exchange '{Exchange}' ready.");
-        }
-        catch (Exception ex)
-        {
-            OcppLog.Write($"[RABBIT ERR] Cannot connect to RabbitMQ at '{host}': {ex.Message}. " +
-                          "Events will not be published.");
+                OcppLog.Write($"[RABBIT    ] Connected to '{host}', exchange '{Exchange}' ready.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                OcppLog.Write($"[RABBIT    ] RabbitMQ not ready ({ex.Message}), retrying in 5 s…");
+                await Task.Delay(5_000);
+            }
         }
     }
 
