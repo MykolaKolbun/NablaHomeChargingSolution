@@ -1,11 +1,12 @@
 namespace OCPPServer;
 
 /// <summary>
-/// Thin wrapper around Console.WriteLine that prepends a UTC timestamp to every line.
-/// All OCPP trace output should go through this so log correlation is possible.
+/// Legacy thin wrapper — kept for backward compatibility.
+/// All new code should call OcppTrace.Msg / OcppTrace.Error / OcppTrace.Dbg directly.
 /// </summary>
+[Obsolete("Use OcppTrace.Msg, OcppTrace.Error, or OcppTrace.Dbg instead.")]
 public static class OcppLog
 {
     public static void Write(string message) =>
-        Console.WriteLine($"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}] {message}");
+        OcppTrace.Msg("OCPP", message);
 }

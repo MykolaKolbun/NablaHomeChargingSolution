@@ -63,6 +63,14 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
+// ── Trace system ──────────────────────────────────────────────────────────────
+// Configure before anything else so the very first connection events are logged.
+OcppTrace.Configure(
+    directory: app.Configuration["Trace:Directory"] ?? "/app/traces",
+    level:     int.TryParse(app.Configuration["Trace:Level"], out var lvl) ? lvl : 1,
+    maxFileMb: int.TryParse(app.Configuration["Trace:MaxFileMb"], out var mb) ? mb : 10);
+OcppTrace.Msg("SYS", $"OCPPServer starting — trace level {app.Configuration["Trace:Level"]}");
+
 // ── RabbitMQ publisher ────────────────────────────────────────────────────────
 // Connect after migrations so startup ordering issues don't mask DB errors.
 // If RabbitMQ is unreachable, events are simply dropped — not a fatal error.
@@ -90,7 +98,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
 
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
     ChargingStationConnections.Add(stationId, webSocket);
-    OcppLog.Write($"Station {stationId} connected.");
+    OcppTrace.Msg("WS", $"Station {stationId} connected.");
 
     var buffer = new byte[1024 * 16];
 
@@ -113,7 +121,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var json = Encoding.UTF8.GetString(ms.ToArray());
-                OcppLog.Write($"[OCPP ← IN ] {stationId}: {json}");
+                OcppTrace.Msg("OCPP", $"[← IN ] {stationId}: {json}");
                 await Communicator.RouteOcppMessage(webSocket, stationId, json, db);
             }
         }
@@ -122,7 +130,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     {
         // Always clean up the connection entry and notify EVChargingApi on disconnect
         ChargingStationConnections.Remove(stationId);
-        OcppLog.Write($"Station {stationId} disconnected.");
+        OcppTrace.Msg("WS", $"Station {stationId} disconnected.");
         Communicator.PushDisconnect(stationId); // tells the app to show "offline"
     }
 });
@@ -303,6 +311,48 @@ app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId
     await db.SaveChangesAsync();
 
     return Results.Ok(new { merged = sourceId, into = targetId });
+});
+
+// ── REST API: trace file access ────────────────────────────────────────────────
+// Protected by ?key= query parameter (set Trace:DownloadKey in appsettings.json).
+// Accessible at app.alternatiview.com.ua/api/admin/traces/...
+
+/// <summary>
+/// Lists the available trace files with their current sizes.
+/// Example: GET /api/admin/traces?key=mysecret
+/// </summary>
+app.MapGet("/api/admin/traces", (string? key, IConfiguration config) =>
+{
+    if (key != config["Trace:DownloadKey"])
+        return Results.Unauthorized();
+
+    var files = OcppTrace.GetFileList()
+        .Select(f => new
+        {
+            name     = f.Name,
+            sizeKb   = Math.Round(f.Bytes / 1024.0, 1),
+            downloadUrl = $"/api/admin/traces/{f.Name}?key={key}"
+        });
+
+    return Results.Ok(files);
+});
+
+/// <summary>
+/// Downloads a single trace file.
+/// Example: GET /api/admin/traces/OCPP_Trace1.txt?key=mysecret
+/// FileShare.ReadWrite allows reading the current file while writing continues.
+/// </summary>
+app.MapGet("/api/admin/traces/{filename}", (string filename, string? key, IConfiguration config) =>
+{
+    if (key != config["Trace:DownloadKey"])
+        return Results.Unauthorized();
+
+    var path = OcppTrace.GetFilePath(filename);
+    if (path is null) return Results.NotFound($"Trace file '{filename}' not found.");
+
+    // Open with ReadWrite share so the logger can keep appending while we serve
+    var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+    return Results.File(stream, contentType: "text/plain; charset=utf-8", fileDownloadName: filename);
 });
 
 app.Run();

@@ -70,7 +70,7 @@ namespace OCPPServer.OCPP1._6_Models
             try { message = JArray.Parse(json); }
             catch (Exception ex)
             {
-                OcppLog.Write($"[OCPP ERR  ] {stationId}: failed to parse JSON — {ex.Message}");
+                OcppTrace.Error("OCPP", $"[PARSE ERR] {stationId}: failed to parse JSON — {ex.Message}");
                 return;
             }
 
@@ -84,7 +84,7 @@ namespace OCPPServer.OCPP1._6_Models
                 var typeLabel = messageType == OcppMessageType.CALLRESULT ? "CALLRESULT" : "CALLERROR";
                 if (_pendingRequests.TryRemove(messageId, out var tcs))
                 {
-                    OcppLog.Write($"[OCPP ← {typeLabel}] {stationId} msgId={messageId} matched pending request");
+                    OcppTrace.Msg("OCPP", $"[← {typeLabel}] {stationId} msgId={messageId} matched");
                     var payload = messageType == OcppMessageType.CALLRESULT
                         ? (JObject)message[2]
                         : new JObject
@@ -96,20 +96,20 @@ namespace OCPPServer.OCPP1._6_Models
                 }
                 else
                 {
-                    OcppLog.Write($"[OCPP ← {typeLabel}] {stationId} msgId={messageId} — NO matching pending request (already timed out?)");
+                    OcppTrace.Error("OCPP", $"[← {typeLabel}] {stationId} msgId={messageId} — no matching pending request (timed out?)");
                 }
                 return;
             }
 
             if (messageType != OcppMessageType.CALL)
             {
-                OcppLog.Write($"[OCPP WARN ] {stationId}: unknown messageType={messageType}, ignoring");
+                OcppTrace.Error("OCPP", $"[WARN] {stationId}: unknown messageType={messageType}, ignoring");
                 return;
             }
 
             string action       = message[2].Value<string>();
             JObject payloadCall = (JObject)message[3];
-            OcppLog.Write($"[OCPP ← CALL] {stationId}: action={action} payload={payloadCall}");
+            OcppTrace.Msg("OCPP", $"[← CALL] {stationId}: action={action} payload={payloadCall}");
 
             // Wrap in try/catch so a handler exception never crashes the WebSocket connection
             try
@@ -148,7 +148,7 @@ namespace OCPPServer.OCPP1._6_Models
             }
             catch (Exception ex)
             {
-                OcppLog.Write($"[OCPP ERROR] {stationId} handling {action}: {ex.Message}");
+                OcppTrace.Error("OCPP", $"[EXCEPTION] {stationId} handling {action}: {ex.Message}");
                 try { await SendCallError(socket, messageId, "InternalError", ex.Message); } catch { }
             }
         }
@@ -157,7 +157,7 @@ namespace OCPPServer.OCPP1._6_Models
         {
             var req = payload.ToObject<BootNotificationRequest>();
 
-            OcppLog.Write($"BootNotification from {stationId}");
+            OcppTrace.Dbg("OCPP", $"BootNotification from {stationId}: vendor={req.ChargePointVendor} model={req.ChargePointModel}");
 
             var existingConnector = await db.Connectors
                 .FirstOrDefaultAsync(c => c.OcppId == stationId);
@@ -209,7 +209,7 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleHeartbeat(WebSocket socket, string messageId)
         {
-            OcppLog.Write($"Heartbeat ");
+            OcppTrace.Dbg("OCPP", "Heartbeat received");
             var payload = new JObject
             {
                 ["currentTime"] = DateTime.UtcNow.ToString("o")
@@ -226,7 +226,7 @@ namespace OCPPServer.OCPP1._6_Models
             var statusStr   = payload["status"]?.Value<string>() ?? "";
             var errorCode   = payload["errorCode"]?.Value<string>() ?? "";
 
-            OcppLog.Write($"[OCPP STATUS] {stationId} connectorId={connectorId} status={statusStr} errorCode={errorCode}");
+            OcppTrace.Msg("OCPP", $"StatusNotification {stationId} connectorId={connectorId} status={statusStr} errorCode={errorCode}");
 
             // Only update DB for the physical connector (connectorId > 0); connectorId=0 is the charger controller
             if (connectorId == 0)
@@ -243,14 +243,14 @@ namespace OCPPServer.OCPP1._6_Models
                 if (Enum.TryParse<Enumerators.ChargePointStatus>(statusStr, out var parsedStatus))
                     existingConnector.Status = parsedStatus;
                 else
-                    OcppLog.Write($"[OCPP WARN ] Unknown ChargePointStatus '{statusStr}' — DB status not changed");
+                    OcppTrace.Error("OCPP", $"[WARN] Unknown ChargePointStatus '{statusStr}' for {stationId} — DB status not changed");
 
                 existingConnector.LastUpdate = DateTime.UtcNow;
                 await db.SaveChangesAsync();
             }
             else
             {
-                OcppLog.Write($"[OCPP WARN ] StatusNotification from unknown stationId '{stationId}' — ignoring");
+                OcppTrace.Error("OCPP", $"[WARN] StatusNotification from unknown stationId '{stationId}' — ignoring");
             }
 
             // Publish status change event → RabbitMQ → EVChargingApi → SignalR → app
@@ -262,7 +262,7 @@ namespace OCPPServer.OCPP1._6_Models
         static async Task HandleStartTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
             var transactionId = ChargingStationConnections.AssignTransaction(stationId);
-            OcppLog.Write($"StartTransaction from {stationId}, assigned transactionId={transactionId}");
+            OcppTrace.Msg("OCPP", $"StartTransaction {stationId} assigned transactionId={transactionId}");
 
             // Save meter reading at transaction start
             var meterStartRaw = payload["meterStart"]?.Value<decimal?>();
@@ -280,7 +280,7 @@ namespace OCPPServer.OCPP1._6_Models
                     connector.LastMeterValueAt    = null;
                     connector.LastUpdate          = DateTime.UtcNow;
                     await db.SaveChangesAsync();
-                    OcppLog.Write($"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
+                    OcppTrace.Dbg("OCPP", $"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
                 }
             }
 
@@ -297,8 +297,7 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
-            OcppLog.Write($"[OCPP STOP ] {stationId}: StopTransaction payload keys=[{string.Join(", ", payload.Properties().Select(p => p.Name))}]");
-            OcppLog.Write($"[OCPP STOP ] meterStop raw value = {payload["meterStop"]}");
+            OcppTrace.Msg("OCPP", $"StopTransaction {stationId}: keys=[{string.Join(", ", payload.Properties().Select(p => p.Name))}] meterStop={payload["meterStop"]}]");
             var stoppedTxId = payload["transactionId"]?.Value<int?>() ?? 0;
             ChargingStationConnections.ClearTransaction(stationId);
 
@@ -320,7 +319,7 @@ namespace OCPPServer.OCPP1._6_Models
                     var consumed = connector.MeterStart.HasValue
                         ? $"{(meterStopRaw.Value - connector.MeterStart.Value) / 1000m:F3} kWh consumed"
                         : "no MeterStart on record";
-                    OcppLog.Write($"MeterStop={meterStopRaw.Value} Wh for {stationId} — {consumed}");
+                    OcppTrace.Dbg("OCPP", $"MeterStop={meterStopRaw.Value} Wh for {stationId} — {consumed}");
                 }
             }
 
@@ -341,7 +340,7 @@ namespace OCPPServer.OCPP1._6_Models
 
         static async Task HandleMeterValueNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
         {
-            OcppLog.Write($"MeterValues from {stationId}: {payload}");
+            OcppTrace.Msg("OCPP", $"MeterValues {stationId}: {payload}");
 
             // Parse raw JTokens — avoids enum deserialization issues with strings like
             // "Energy.Active.Import.Register" that don't map to C# enum names.
@@ -396,7 +395,7 @@ namespace OCPPServer.OCPP1._6_Models
                             connector.LastMeterValueAt = now;
                             connector.LastUpdate       = now;
                             await db.SaveChangesAsync();
-                            OcppLog.Write($"Stored {energyWh.Value} Wh, power={connector.CurrentPowerKw} kW for {stationId}");
+                            OcppTrace.Dbg("OCPP", $"Meter stored: {energyWh.Value} Wh, power={connector.CurrentPowerKw} kW for {stationId}");
 
                         // Publish meter event — EVChargingApi pushes live data to the app
                         // and checks the wallet balance (event-driven, no more 30-second polling).
@@ -444,7 +443,7 @@ namespace OCPPServer.OCPP1._6_Models
                 transactionId = connector?.ActiveTransactionId;
             }
 
-            OcppLog.Write($"[OCPP STOP ] {stationId}: sending RemoteStopTransaction transactionId={transactionId} (source: {(callerTransactionId.HasValue ? "session" : transactionId.HasValue ? "fallback" : "none")})");
+            OcppTrace.Msg("OCPP", $"[→ OUT] {stationId}: sending RemoteStopTransaction transactionId={transactionId} (source: {(callerTransactionId.HasValue ? "session" : transactionId.HasValue ? "fallback" : "none")})");
 
             var payload = new JObject
             {
@@ -526,7 +525,7 @@ namespace OCPPServer.OCPP1._6_Models
             var json  = message.ToString(Formatting.None);
             var bytes = Encoding.UTF8.GetBytes(json);
 
-            OcppLog.Write($"[OCPP → OUT] {json}");
+            OcppTrace.Msg("OCPP", $"[→ OUT] {json}");
 
             await socket.SendAsync(
                 bytes,

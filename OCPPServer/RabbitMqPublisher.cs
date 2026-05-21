@@ -61,12 +61,12 @@ public static class RabbitMqPublisher
                     durable:    true,
                     autoDelete: false);
 
-                OcppLog.Write($"[RABBIT    ] Connected to '{host}', exchange '{Exchange}' ready.");
+                OcppTrace.Msg("RMQ", $"Connected to '{host}', exchange '{Exchange}' ready.");
                 return;
             }
             catch (Exception ex)
             {
-                OcppLog.Write($"[RABBIT    ] RabbitMQ not ready ({ex.Message}), retrying in 5 s…");
+                OcppTrace.Error("RMQ", $"Not ready ({ex.Message}), retrying in 5 s…");
                 await Task.Delay(5_000);
             }
         }
@@ -92,11 +92,11 @@ public static class RabbitMqPublisher
                 basicProperties: props,
                 body:            body);
 
-            OcppLog.Write($"[RABBIT → ] {routingKey}");
+            OcppTrace.Msg("RMQ", $"[→] {routingKey}");
         }
         catch (Exception ex)
         {
-            OcppLog.Write($"[RABBIT ERR] Failed to publish '{routingKey}': {ex.Message}");
+            OcppTrace.Error("RMQ", $"Failed to publish '{routingKey}': {ex.Message}");
         }
     }
 

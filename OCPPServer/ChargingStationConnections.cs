@@ -20,24 +20,34 @@
  * for stop commands after a restart.
  */
 
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 
 namespace OCPPServer
 {
     public static class ChargingStationConnections
     {
-        /// <summary>Live WebSocket connections keyed by normalised stationId (lowercase OcppId).</summary>
-        private static readonly Dictionary<string, WebSocket> _connections = new();
+        /// <summary>
+        /// Live WebSocket connections keyed by normalised stationId (lowercase OcppId).
+        /// ConcurrentDictionary is used because multiple chargers can connect or
+        /// disconnect simultaneously on different async threads.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, WebSocket> _connections = new();
 
         /// <summary>
         /// In-memory transactionId assigned at RemoteStartTransaction.
         /// Used to match the correct transactionId in RemoteStopTransaction.
         /// Cleared when StopTransaction is received from the charger.
+        /// ConcurrentDictionary avoids KeyNotFoundException on concurrent reconnects.
         /// </summary>
-        private static readonly Dictionary<string, int> _activeTransactions = new();
+        private static readonly ConcurrentDictionary<string, int> _activeTransactions = new();
 
-        /// <summary>Monotonically increasing counter for generating unique transactionIds.</summary>
-        private static int _transactionCounter = 1;
+        /// <summary>
+        /// Monotonically increasing counter for generating unique transactionIds.
+        /// Interlocked.Increment is used instead of ++ to guarantee atomicity under
+        /// concurrent StartTransaction messages from multiple chargers.
+        /// </summary>
+        private static int _transactionCounter = 0;
 
         // ── Connection management ──────────────────────────────────────────────
 
@@ -47,7 +57,7 @@ namespace OCPPServer
 
         /// <summary>Removes the connection entry when the charger disconnects.</summary>
         public static void Remove(string stationId)
-            => _connections.Remove(stationId);
+            => _connections.TryRemove(stationId, out _);
 
         /// <summary>Returns the open WebSocket for a charger, or null if not connected.</summary>
         public static WebSocket? Get(string stationId)
@@ -62,7 +72,9 @@ namespace OCPPServer
         /// </summary>
         public static int AssignTransaction(string stationId)
         {
-            var id = _transactionCounter++;
+            // Interlocked.Increment is atomic — safe when multiple chargers send
+            // StartTransaction simultaneously on different async threads.
+            var id = Interlocked.Increment(ref _transactionCounter);
             _activeTransactions[stationId] = id;
             return id;
         }
@@ -73,6 +85,6 @@ namespace OCPPServer
 
         /// <summary>Removes the transactionId when StopTransaction is received from the charger.</summary>
         public static void ClearTransaction(string stationId)
-            => _activeTransactions.Remove(stationId);
+            => _activeTransactions.TryRemove(stationId, out _);
     }
 }
