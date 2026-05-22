@@ -209,16 +209,17 @@ app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBConte
     var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
     if (charger is null) return Results.NotFound();
 
-    var sessionKwh = (charger.MeterStart.HasValue && charger.MeterValue.HasValue)
-        ? Math.Round((double)(charger.MeterValue.Value - charger.MeterStart.Value) / 1000, 3)
+    var meterStart = ChargingStationConnections.GetMeterStart(ocppId);
+    var sessionKwh = (meterStart.HasValue && charger.MeterValue.HasValue)
+        ? Math.Round((double)(charger.MeterValue.Value - meterStart.Value) / 1000, 3)
         : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
 
     return Results.Ok(new
     {
         ocppId,
-        meterStartWh     = charger.MeterStart,
+        meterStartWh     = meterStart,
         meterValueWh     = charger.MeterValue,
-        meterStopWh      = charger.MeterStop,
+        meterStopWh      = (decimal?)null,           // MeterStop lives in EVChargingDB.ChargingSessions
         energyKwh        = sessionKwh,              // kWh consumed in current/last session
         currentPowerKw   = charger.CurrentPowerKw,  // instantaneous power; null when idle
         sessionStartedAt = charger.SessionStartedAt,
@@ -239,7 +240,8 @@ app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
             c.IsFastCharger, c.ShowOnMap, c.MaxPowerKw, c.NumberOfConnectors,
             c.Vendor, c.ChargePointModel, c.FirmwareVersion,
             status      = c.Status.ToString(),
-            c.MeterStart, c.MeterValue, c.MeterStop,
+            meterStartWh = ChargingStationConnections.GetMeterStart(c.OcppId),
+            c.MeterValue,
             c.LastUpdate, c.CreatedAt,
             isConnected = ChargingStationConnections.Get(c.OcppId) != null
         })
@@ -302,9 +304,7 @@ app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId
     tgt.ShowOnMap          = src.ShowOnMap;
     tgt.MaxPowerKw         = src.MaxPowerKw          ?? tgt.MaxPowerKw;
     tgt.NumberOfConnectors = src.NumberOfConnectors;
-    tgt.MeterStart         = src.MeterStart          ?? tgt.MeterStart;
     tgt.MeterValue         = (src.MeterValue > tgt.MeterValue) ? src.MeterValue : tgt.MeterValue;
-    tgt.MeterStop          = src.MeterStop           ?? tgt.MeterStop;
     tgt.CreatedAt          = src.CreatedAt; // preserve original creation date
 
     db.Connectors.Remove(src);

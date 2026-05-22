@@ -268,19 +268,21 @@ namespace OCPPServer.OCPP1._6_Models
             var meterStartRaw = payload["meterStart"]?.Value<decimal?>();
             if (meterStartRaw.HasValue)
             {
+                // Store MeterStart in-memory — no longer persisted in OCPP DB.
+                // EVChargingApi will persist it in ChargingSession.MeterStart via RabbitMQ.
+                ChargingStationConnections.SetMeterStart(stationId, meterStartRaw.Value);
+
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStart          = meterStartRaw.Value;
                     connector.MeterValue          = meterStartRaw.Value; // reset so energyKwh = 0 at session start
-                    connector.MeterStop           = null;                // clear previous session's stop value
                     connector.SessionStartedAt    = DateTime.UtcNow;
                     connector.ActiveTransactionId = transactionId;       // persist so Stop survives restarts
                     connector.CurrentPowerKw      = null;               // no reading yet
                     connector.LastMeterValueAt    = null;
                     connector.LastUpdate          = DateTime.UtcNow;
                     await db.SaveChangesAsync();
-                    OcppTrace.Dbg("OCPP", $"MeterStart={meterStartRaw.Value} Wh saved for {stationId}");
+                    OcppTrace.Dbg("OCPP", $"MeterStart={meterStartRaw.Value} Wh (in-memory) for {stationId}");
                 }
             }
 
@@ -291,8 +293,8 @@ namespace OCPPServer.OCPP1._6_Models
             };
             await SendCallResult(socket, messageId, response);
 
-            // Publish event → RabbitMQ → EVChargingApi stores transactionId on the session
-            _ = RabbitMqPublisher.PublishTransactionStartedAsync(stationId, transactionId);
+            // Publish event → RabbitMQ → EVChargingApi stores transactionId + MeterStart on the session
+            _ = RabbitMqPublisher.PublishTransactionStartedAsync(stationId, transactionId, meterStartRaw);
         }
 
         static async Task HandleStopTransaction(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
@@ -303,12 +305,15 @@ namespace OCPPServer.OCPP1._6_Models
 
             // Save meter reading at transaction end
             var meterStopRaw = payload["meterStop"]?.Value<decimal?>();
+            // Read MeterStart from in-memory cache before clearing it
+            var meterStartForStop = ChargingStationConnections.GetMeterStart(stationId);
+
             if (meterStopRaw.HasValue)
             {
                 var connector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 if (connector != null)
                 {
-                    connector.MeterStop           = meterStopRaw.Value;
+                    // MeterStop is not persisted in OCPP DB — EVChargingApi stores it in ChargingSession
                     connector.MeterValue          = meterStopRaw.Value; // sync live reading to final value
                     connector.SessionStartedAt    = null;               // session over
                     connector.ActiveTransactionId = null;
@@ -316,12 +321,15 @@ namespace OCPPServer.OCPP1._6_Models
                     connector.LastMeterValueAt    = null;
                     connector.LastUpdate          = DateTime.UtcNow;
                     await db.SaveChangesAsync();
-                    var consumed = connector.MeterStart.HasValue
-                        ? $"{(meterStopRaw.Value - connector.MeterStart.Value) / 1000m:F3} kWh consumed"
+                    var consumed = meterStartForStop.HasValue
+                        ? $"{(meterStopRaw.Value - meterStartForStop.Value) / 1000m:F3} kWh consumed"
                         : "no MeterStart on record";
                     OcppTrace.Dbg("OCPP", $"MeterStop={meterStopRaw.Value} Wh for {stationId} — {consumed}");
                 }
             }
+
+            // Clear in-memory MeterStart — session is over
+            ChargingStationConnections.ClearMeterStart(stationId);
 
             await SendCallResult(socket, messageId, new JObject
             {
@@ -332,9 +340,8 @@ namespace OCPPServer.OCPP1._6_Models
             // and push SessionFinalized via SignalR to the app.
             if (meterStopRaw.HasValue)
             {
-                var ocppConnector = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == stationId);
                 _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
-                    stationId, stoppedTxId, meterStopRaw.Value, ocppConnector?.MeterStart);
+                    stationId, stoppedTxId, meterStopRaw.Value, meterStartForStop);
             }
         }
 
@@ -402,7 +409,7 @@ namespace OCPPServer.OCPP1._6_Models
                         _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
                             stationId,
                             energyWh.Value,
-                            connector.MeterStart,
+                            ChargingStationConnections.GetMeterStart(stationId),
                             connector.CurrentPowerKw);
                         }
                     }

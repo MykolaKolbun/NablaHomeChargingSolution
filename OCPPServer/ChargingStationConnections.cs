@@ -43,6 +43,14 @@ namespace OCPPServer
         private static readonly ConcurrentDictionary<string, int> _activeTransactions = new();
 
         /// <summary>
+        /// Meter reading (Wh) at session start, stored in-memory from StartTransaction.
+        /// Used to calculate session energy (MeterValue − MeterStart) during charging
+        /// and passed to EVChargingApi in StopTransaction so it can persist the delta.
+        /// Cleared when StopTransaction is received.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, decimal> _meterStarts = new();
+
+        /// <summary>
         /// Monotonically increasing counter for generating unique transactionIds.
         /// Interlocked.Increment is used instead of ++ to guarantee atomicity under
         /// concurrent StartTransaction messages from multiple chargers.
@@ -86,5 +94,19 @@ namespace OCPPServer
         /// <summary>Removes the transactionId when StopTransaction is received from the charger.</summary>
         public static void ClearTransaction(string stationId)
             => _activeTransactions.TryRemove(stationId, out _);
+
+        // ── MeterStart management ──────────────────────────────────────────────
+
+        /// <summary>Stores the meter reading (Wh) at session start. Called from HandleStartTransaction.</summary>
+        public static void SetMeterStart(string stationId, decimal valueWh)
+            => _meterStarts[stationId] = valueWh;
+
+        /// <summary>Returns the stored MeterStart (Wh) for a charger, or null if not set.</summary>
+        public static decimal? GetMeterStart(string stationId)
+            => _meterStarts.TryGetValue(stationId, out var v) ? v : null;
+
+        /// <summary>Removes the MeterStart entry when StopTransaction is received.</summary>
+        public static void ClearMeterStart(string stationId)
+            => _meterStarts.TryRemove(stationId, out _);
     }
 }

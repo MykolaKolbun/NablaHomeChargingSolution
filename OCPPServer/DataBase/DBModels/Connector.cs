@@ -63,11 +63,6 @@ namespace OCPPServer.DataBase.DBModels
         public int? ActiveTransactionId { get; set; }
 
         /// <summary>
-        /// Meter reading (Wh) when the current/last transaction started (from StartTransaction).
-        /// </summary>
-        public decimal? MeterStart { get; set; }
-
-        /// <summary>
         /// Live meter reading (Wh) updated by MeterValues messages during charging.
         /// </summary>
         public decimal? MeterValue { get; set; }
@@ -82,11 +77,6 @@ namespace OCPPServer.DataBase.DBModels
         /// Null when no session is active or only one reading received so far.
         /// </summary>
         public double? CurrentPowerKw { get; set; }
-
-        /// <summary>
-        /// Meter reading (Wh) when the current/last transaction ended (from StopTransaction).
-        /// </summary>
-        public decimal? MeterStop { get; set; }
 
         /// <summary>
         /// Get or set the timestamp of the last update received from the Connector.

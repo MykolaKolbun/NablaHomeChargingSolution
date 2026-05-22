@@ -115,9 +115,9 @@ public static class RabbitMqPublisher
     /// Charger confirmed StartTransaction. EVChargingApi stores the OCPP
     /// transactionId on the active session so RemoteStop can include it.
     /// </summary>
-    public static Task PublishTransactionStartedAsync(string ocppId, int transactionId)
+    public static Task PublishTransactionStartedAsync(string ocppId, int transactionId, decimal? meterStartWh)
         => PublishAsync("charger.transaction.started",
-            new { ocppId, transactionId });
+            new { ocppId, transactionId, meterStartWh });
 
     /// <summary>
     /// Charger confirmed StopTransaction. Includes transactionId so EVChargingApi
