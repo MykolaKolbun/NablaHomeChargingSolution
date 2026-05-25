@@ -172,6 +172,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
 
         if      (offered.Contains("ocpp2.1"))   selectedProtocol = "ocpp2.1";
         else if (offered.Contains("ocpp2.0.1")) selectedProtocol = "ocpp2.0.1";
+        else if (offered.Contains("ocpp2.0"))   selectedProtocol = "ocpp2.0";
         else if (offered.Contains("ocpp1.6"))   selectedProtocol = "ocpp1.6";
         else if (offered.Contains("ocpp1.5"))   selectedProtocol = "ocpp1.5";
     }

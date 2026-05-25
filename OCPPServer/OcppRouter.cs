@@ -27,7 +27,7 @@ public sealed class OcppRouter : ICommunicator
     private static bool Is21(string stationId)
     {
         var p = ChargingStationConnections.GetProtocol(stationId);
-        return p is "ocpp2.1" or "ocpp2.0.1";
+        return p is "ocpp2.1" or "ocpp2.0.1" or "ocpp2.0";
     }
 
     public void PushDisconnect(string stationId)
