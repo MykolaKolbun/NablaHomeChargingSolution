@@ -146,7 +146,8 @@ Emitted periodically during a session when the charger sends `MeterValues` notif
 | `ocppId` | `string` | Station identity |
 | `meterValueWh` | `decimal` | Current cumulative energy (Wh) |
 | `meterStartWh` | `decimal?` | Session start meter value; `null` if not yet known |
-| `currentPowerKw` | `double?` | Active power in kW; `null` if not reported by charger |
+| `currentPowerKw` | `double?` | Active power in kW; directly reported by charger (`Power.Active.Import`) or derived from consecutive energy readings; `null` if unavailable |
+| `soc` | `decimal?` | State of Charge (%, 0–100); only populated by DC fast chargers that communicate with the vehicle BMS; `null` for AC chargers |
 
 ### 3.5 `charger.remote.start.response`
 

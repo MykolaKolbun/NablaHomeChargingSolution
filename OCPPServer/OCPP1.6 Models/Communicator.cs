@@ -381,35 +381,9 @@ namespace OCPPServer.OCPP1._6_Models
                 return;
             }
 
-            var lastEntry    = meterValues.LastOrDefault();
-            var sampledValues = lastEntry?["sampledValue"] as JArray;
+            var readings = MeterValueParser.Parse(meterValues);
 
-            decimal? energyWh = null;
-            if (sampledValues != null)
-            {
-                foreach (JToken sv in sampledValues)
-                {
-                    // Default measurand per OCPP 1.6 spec is Energy.Active.Import.Register
-                    var measurand = sv["measurand"]?.Value<string>() ?? "Energy.Active.Import.Register";
-                    if (!measurand.StartsWith("Energy")) continue;
-
-                    var valueStr = sv["value"]?.Value<string>() ?? "";
-                    var unit     = sv["unit"]?.Value<string>()  ?? "Wh";
-
-                    if (decimal.TryParse(valueStr,
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture,
-                            out var val))
-                    {
-                        energyWh = unit.Equals("kWh", StringComparison.OrdinalIgnoreCase)
-                            ? val * 1000m
-                            : val;
-                        break;
-                    }
-                }
-            }
-
-            if (!energyWh.HasValue)
+            if (!readings.EnergyWh.HasValue)
             {
                 OcppTrace.Error("OCPP", $"[WARN] MeterValues {stationId}: no Energy measurand found in sampled values");
                 await SendCallResult(socket, messageId, new JObject());
@@ -426,26 +400,30 @@ namespace OCPPServer.OCPP1._6_Models
 
             var now = DateTime.UtcNow;
 
-            double? currentPowerKw = null;
-            if (connector.MeterValue.HasValue && connector.LastMeterValueAt.HasValue)
+            // Prefer power reported directly by the charger; fall back to calculated (ΔWh/Δh)
+            double? currentPowerKw = readings.PowerKw;
+            if (currentPowerKw == null && connector.MeterValue.HasValue && connector.LastMeterValueAt.HasValue)
             {
-                var deltaWh    = (double)(energyWh.Value - connector.MeterValue.Value);
+                var deltaWh    = (double)(readings.EnergyWh.Value - connector.MeterValue.Value);
                 var deltaHours = (now - connector.LastMeterValueAt.Value).TotalHours;
                 if (deltaHours > 0 && deltaWh >= 0)
                     currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
             }
 
-            connector.MeterValue       = energyWh.Value;
+            connector.MeterValue       = readings.EnergyWh.Value;
             connector.LastMeterValueAt = now;
             connector.LastStatusUpdate = now;
+            if (readings.SoC.HasValue)
+                connector.StateOfCharge = readings.SoC;
             await db.SaveChangesAsync();
-            OcppTrace.Dbg("OCPP", $"Meter stored: {energyWh.Value} Wh, power={currentPowerKw} kW for {stationId}");
+            OcppTrace.Dbg("OCPP", $"Meter stored: {readings.EnergyWh.Value} Wh, power={currentPowerKw} kW, SoC={readings.SoC} % for {stationId}");
 
             _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
                 stationId,
-                energyWh.Value,
+                readings.EnergyWh.Value,
                 ChargingStationConnections.GetMeterStart(stationId),
-                currentPowerKw);
+                currentPowerKw,
+                readings.SoC);
 
             await SendCallResult(socket, messageId, new JObject());
         }

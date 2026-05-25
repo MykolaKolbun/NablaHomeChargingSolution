@@ -35,6 +35,13 @@ namespace OCPPServer.DataBase.DBModels
         /// </summary>
         public DateTime? LastMeterValueAt { get; set; }
 
+        /// <summary>
+        /// State of Charge (%) reported by the vehicle via the charger.
+        /// Only populated by DC fast chargers that communicate with the vehicle BMS.
+        /// Null for AC chargers or when the charger does not report SoC.
+        /// </summary>
+        public decimal? StateOfCharge { get; set; }
+
 
         /// <summary>
         /// Get or set the timestamp of the last update received from the Connector.

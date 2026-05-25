@@ -135,9 +135,9 @@ public static class RabbitMqPublisher
     /// so EVChargingApi can push real-time updates to the session screen.
     /// </summary>
     public static Task PublishMeterUpdatedAsync(
-        string ocppId, decimal meterValueWh, decimal? meterStartWh, double? currentPowerKw)
+        string ocppId, decimal meterValueWh, decimal? meterStartWh, double? currentPowerKw, decimal? soc = null)
         => PublishAsync("charger.meter.updated",
-            new { ocppId, meterValueWh, meterStartWh, currentPowerKw });
+            new { ocppId, meterValueWh, meterStartWh, currentPowerKw, soc });
 
     /// <summary>
     /// Charger responded to RemoteStartTransaction. EVChargingApi uses this to

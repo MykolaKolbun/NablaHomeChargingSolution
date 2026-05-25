@@ -277,7 +277,7 @@ public sealed class Ocpp21Communicator
         string ocppTxId, JArray? meterValues, ChargingDBContext db)
     {
         var localTxId    = ChargingStationConnections.RegisterOcpp21Transaction(stationId, ocppTxId);
-        var meterStartWh = ExtractEnergyWh(meterValues);
+        var meterStartWh = MeterValueParser.Parse(meterValues).EnergyWh;
 
         OcppTrace.Msg("OCPP21", $"Transaction started {stationId}: localId={localTxId} ocppTxId={ocppTxId}");
 
@@ -307,8 +307,8 @@ public sealed class Ocpp21Communicator
         WebSocket socket, string messageId, string stationId,
         JArray? meterValues, ChargingDBContext db)
     {
-        var energyWh = ExtractEnergyWh(meterValues);
-        if (!energyWh.HasValue)
+        var readings = MeterValueParser.Parse(meterValues);
+        if (!readings.EnergyWh.HasValue)
         {
             await SendCallResult(socket, messageId, new JObject());
             return;
@@ -317,10 +317,10 @@ public sealed class Ocpp21Communicator
         var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
         var now  = DateTime.UtcNow;
 
-        double? currentPowerKw = null;
-        if (plug?.MeterValue.HasValue == true && plug.LastMeterValueAt.HasValue)
+        double? currentPowerKw = readings.PowerKw;
+        if (currentPowerKw == null && plug?.MeterValue.HasValue == true && plug.LastMeterValueAt.HasValue)
         {
-            var deltaWh    = (double)(energyWh.Value - plug.MeterValue.Value);
+            var deltaWh    = (double)(readings.EnergyWh.Value - plug.MeterValue.Value);
             var deltaHours = (now - plug.LastMeterValueAt.Value).TotalHours;
             if (deltaHours > 0 && deltaWh >= 0)
                 currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
@@ -328,16 +328,18 @@ public sealed class Ocpp21Communicator
 
         if (plug != null)
         {
-            plug.MeterValue       = energyWh.Value;
+            plug.MeterValue       = readings.EnergyWh.Value;
             plug.LastMeterValueAt = now;
             plug.LastStatusUpdate = now;
+            if (readings.SoC.HasValue)
+                plug.StateOfCharge = readings.SoC;
             await db.SaveChangesAsync();
         }
 
         _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
-            stationId, energyWh.Value,
+            stationId, readings.EnergyWh.Value,
             ChargingStationConnections.GetMeterStart(stationId),
-            currentPowerKw);
+            currentPowerKw, readings.SoC);
 
         await SendCallResult(socket, messageId, new JObject());
     }
@@ -346,7 +348,7 @@ public sealed class Ocpp21Communicator
         WebSocket socket, string messageId, string stationId,
         string ocppTxId, JArray? meterValues, ChargingDBContext db)
     {
-        var meterStopWh       = ExtractEnergyWh(meterValues);
+        var meterStopWh       = MeterValueParser.Parse(meterValues).EnergyWh;
         var meterStartForStop = ChargingStationConnections.GetMeterStart(stationId);
         // Read local tx ID before clearing — needed for RabbitMQ event and pending stop signal
         var localTxId         = ChargingStationConnections.GetOcpp21LocalTxId(stationId) ?? 0;
@@ -379,10 +381,9 @@ public sealed class Ocpp21Communicator
     private async Task HandleMeterValues(
         WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
     {
-        var meterValues = payload["meterValue"] as JArray;
-        var energyWh    = ExtractEnergyWh(meterValues);
+        var readings = MeterValueParser.Parse(payload["meterValue"] as JArray);
 
-        if (!energyWh.HasValue)
+        if (!readings.EnergyWh.HasValue)
         {
             await SendCallResult(socket, messageId, new JObject());
             return;
@@ -391,10 +392,10 @@ public sealed class Ocpp21Communicator
         var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
         var now  = DateTime.UtcNow;
 
-        double? currentPowerKw = null;
-        if (plug?.MeterValue.HasValue == true && plug.LastMeterValueAt.HasValue)
+        double? currentPowerKw = readings.PowerKw;
+        if (currentPowerKw == null && plug?.MeterValue.HasValue == true && plug.LastMeterValueAt.HasValue)
         {
-            var deltaWh    = (double)(energyWh.Value - plug.MeterValue.Value);
+            var deltaWh    = (double)(readings.EnergyWh.Value - plug.MeterValue.Value);
             var deltaHours = (now - plug.LastMeterValueAt.Value).TotalHours;
             if (deltaHours > 0 && deltaWh >= 0)
                 currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
@@ -402,16 +403,18 @@ public sealed class Ocpp21Communicator
 
         if (plug != null)
         {
-            plug.MeterValue       = energyWh.Value;
+            plug.MeterValue       = readings.EnergyWh.Value;
             plug.LastMeterValueAt = now;
             plug.LastStatusUpdate = now;
+            if (readings.SoC.HasValue)
+                plug.StateOfCharge = readings.SoC;
             await db.SaveChangesAsync();
         }
 
         _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
-            stationId, energyWh.Value,
+            stationId, readings.EnergyWh.Value,
             ChargingStationConnections.GetMeterStart(stationId),
-            currentPowerKw);
+            currentPowerKw, readings.SoC);
 
         await SendCallResult(socket, messageId, new JObject());
     }
@@ -487,33 +490,4 @@ public sealed class Ocpp21Communicator
         await socket.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────
-
-    private static decimal? ExtractEnergyWh(JArray? meterValues)
-    {
-        if (meterValues == null) return null;
-        var lastEntry    = meterValues.LastOrDefault();
-        var sampledValues = lastEntry?["sampledValue"] as JArray;
-        if (sampledValues == null) return null;
-
-        foreach (JToken sv in sampledValues)
-        {
-            var measurand = sv["measurand"]?.Value<string>() ?? "Energy.Active.Import.Register";
-            if (!measurand.StartsWith("Energy")) continue;
-
-            var valueStr = sv["value"]?.Value<string>() ?? "";
-            var unit     = sv["unit"]?["name"]?.Value<string>()  // OCPP 2.x uses { "name": "Wh" }
-                        ?? sv["unit"]?.Value<string>()           // OCPP 1.6 uses a plain string
-                        ?? "Wh";
-
-            if (decimal.TryParse(valueStr,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out var val))
-            {
-                return unit.Equals("kWh", StringComparison.OrdinalIgnoreCase) ? val * 1000m : val;
-            }
-        }
-        return null;
-    }
 }
