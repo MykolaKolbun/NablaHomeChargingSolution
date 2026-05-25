@@ -29,12 +29,14 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using OCPP_RD.OCPP1._6_Models;
 using OCPPServer;
+using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
 using OCPPServer.DataBase.DBModels;
 using OCPPServer.OCPP1._6_Models;
 using System;
 using System.Net.WebSockets;
 using System.Text;
+using static OCPP_RD.OCPP1._6_Models.MeterValuesRequest;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -54,6 +56,13 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
+//---Connection manager and OCPP message router---
+builder.Services.AddSingleton<ICommunicator, Communicator>();
+
+// ── RabbitMQ consumer (registered before Build so the DI container sees it) ───
+builder.Services.AddHostedService<RabbitMqConsumer>();
+builder.Services.AddScoped<IOcppCommandHandler, OcppCommandHandler>();
+
 var app = builder.Build();
 
 // Auto-apply pending migrations on startup
@@ -64,7 +73,6 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ── Trace system ──────────────────────────────────────────────────────────────
-// Configure before anything else so the very first connection events are logged.
 OcppTrace.Configure(
     directory: app.Configuration["Trace:Directory"] ?? "/app/traces",
     level:     int.TryParse(app.Configuration["Trace:Level"], out var lvl) ? lvl : 1,
@@ -72,8 +80,8 @@ OcppTrace.Configure(
 OcppTrace.Msg("SYS", $"OCPPServer starting — trace level {app.Configuration["Trace:Level"]}");
 
 // ── RabbitMQ publisher ────────────────────────────────────────────────────────
-// Connect after migrations so startup ordering issues don't mask DB errors.
-// If RabbitMQ is unreachable, events are simply dropped — not a fatal error.
+// Connected after migrations. RabbitMqConsumer waits on SharedConnection so
+// startup order is safe — the consumer won't try to consume before this returns.
 await RabbitMqPublisher.ConfigureAsync(
     host:     app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
     username: app.Configuration["RabbitMQ:Username"] ?? "guest",
@@ -86,9 +94,61 @@ app.UseWebSockets();   // must be before MapXxx so WebSocket upgrades are handle
 // ── WebSocket endpoint: OCPP charger connections ───────────────────────────────
 // Each charger connects to /ws/{its-stationId} and stays connected indefinitely.
 // The server reads OCPP messages in a loop until the socket closes.
-app.Map("/ws/{stationId}", async (HttpContext context, string stationId, ChargingDBContext db) =>
+//TODO: Uncomment when new version of this part not working, see region "new websocket with getting OCPP versions from charger"
+//app.Map("/ws/{stationId}", async (HttpContext context, string stationId, ChargingDBContext db) =>
+//{
+//    stationId = stationId.ToLowerInvariant(); // normalise: "U030" == "u030"
+
+//    if (!context.WebSockets.IsWebSocketRequest)
+//    {
+//        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+//        return;
+//    }
+
+//    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+//    ChargingStationConnections.Add(stationId, webSocket);
+//    OcppTrace.Msg("WS", $"Station {stationId} connected.");
+
+//    var buffer = new byte[1024 * 16];
+
+//    try
+//    {
+//        while (webSocket.State == WebSocketState.Open)
+//        {
+//            // Accumulate WebSocket frames into a single message.
+//            // OCPP messages can be split across multiple frames ("fragmentation").
+//            using var ms = new System.IO.MemoryStream();
+//            WebSocketReceiveResult result;
+//            do
+//            {
+//                result = await webSocket.ReceiveAsync(buffer, CancellationToken.None);
+//                if (result.MessageType == WebSocketMessageType.Close) break;
+//                ms.Write(buffer, 0, result.Count);
+//            }
+//            while (!result.EndOfMessage);
+
+//            if (result.MessageType == WebSocketMessageType.Text)
+//            {
+//                var json = Encoding.UTF8.GetString(ms.ToArray());
+//                OcppTrace.Msg("OCPP", $"[← IN ] {stationId}: {json}");
+//                await Communicator.RouteOcppMessage(webSocket, stationId, json, db);
+//            }
+//        }
+//    }
+//    finally
+//    {
+//        // Always clean up the connection entry and notify EVChargingApi on disconnect
+//        ChargingStationConnections.Remove(stationId);
+//        OcppTrace.Msg("WS", $"Station {stationId} disconnected.");
+//        Communicator.PushDisconnect(stationId); // tells the app to show "offline"
+//    }
+//});
+
+#region new websocket with getting OCPP versions from charger
+
+app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServiceScopeFactory scopeFactory, ICommunicator communicator) =>
 {
-    stationId = stationId.ToLowerInvariant(); // normalise: "U030" == "u030"
+    stationId = stationId.ToLowerInvariant();
 
     if (!context.WebSockets.IsWebSocketRequest)
     {
@@ -96,9 +156,31 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
         return;
     }
 
-    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    // READ Sec-WebSocket-Protocol header
+    var protocols = context.Request.Headers["Sec-WebSocket-Protocol"].ToString();
+    OcppTrace.Msg("WS", $"Requested protocols: {protocols}");
+
+    string? selectedProtocol = null;
+
+    if (!string.IsNullOrEmpty(protocols))
+    {
+        var list = protocols.Split(',')
+                             .Select(p => p.Trim())
+                             .ToList();
+
+        if (list.Contains("ocpp1.6"))
+            selectedProtocol = "ocpp1.6";
+        else if (list.Contains("ocpp1.5"))
+            selectedProtocol = "ocpp1.5";
+    }
+
+    using var webSocket = selectedProtocol != null
+        ? await context.WebSockets.AcceptWebSocketAsync(selectedProtocol)
+        : await context.WebSockets.AcceptWebSocketAsync();
+
     ChargingStationConnections.Add(stationId, webSocket);
-    OcppTrace.Msg("WS", $"Station {stationId} connected.");
+
+    OcppTrace.Msg("WS", $"Station {stationId} connected with protocol: {selectedProtocol ?? "none"}");
 
     var buffer = new byte[1024 * 16];
 
@@ -106,10 +188,9 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
     {
         while (webSocket.State == WebSocketState.Open)
         {
-            // Accumulate WebSocket frames into a single message.
-            // OCPP messages can be split across multiple frames ("fragmentation").
             using var ms = new System.IO.MemoryStream();
             WebSocketReceiveResult result;
+
             do
             {
                 result = await webSocket.ReceiveAsync(buffer, CancellationToken.None);
@@ -122,24 +203,33 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, Chargin
             {
                 var json = Encoding.UTF8.GetString(ms.ToArray());
                 OcppTrace.Msg("OCPP", $"[← IN ] {stationId}: {json}");
-                await Communicator.RouteOcppMessage(webSocket, stationId, json, db);
+
+                // New scope per message — DbContext is borrowed from the pool for the
+                // duration of the handler and released immediately after SaveChangesAsync.
+                await using var scope = scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
+                await communicator.RouteOcppMessage(webSocket, stationId, json, db);
             }
         }
     }
     finally
     {
-        // Always clean up the connection entry and notify EVChargingApi on disconnect
         ChargingStationConnections.Remove(stationId);
         OcppTrace.Msg("WS", $"Station {stationId} disconnected.");
-        Communicator.PushDisconnect(stationId); // tells the app to show "offline"
+        communicator.PushDisconnect(stationId);
     }
 });
+#endregion
 
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+//TODO: Remove REST API and handle session control via RabbitMQ messages from EVChargingApi instead.
+
+
 
 // ── REST API: session control ───────────────────────────────────────────────────
 
@@ -148,32 +238,32 @@ if (app.Environment.IsDevelopment())
 /// Sends RemoteStartTransaction over the charger's WebSocket.
 /// Returns 404 if the charger is not currently connected.
 /// </summary>
-app.MapPost("/api/chargers/{stationId}/start-session", async (string stationId) =>
-{
-    var socket = ChargingStationConnections.Get(stationId);
-    if (socket == null || socket.State != WebSocketState.Open)
-        return Results.NotFound("Charging station not connected");
+//app.MapPost("/api/chargers/{stationId}/start-session", async (string stationId, ICommunicator communicator) =>
+//{
+//    var socket = ChargingStationConnections.Get(stationId);
+//    if (socket == null || socket.State != WebSocketState.Open)
+//        return Results.NotFound("Charging station not connected");
 
-    await Communicator.SendStartCharging(socket);
+//    await communicator.SendStartCharging(socket);
 
-    return Results.Ok(new { stationId, status = "SENT" });
-});
+//    return Results.Ok(new { stationId, status = "SENT" });
+//});
 
 /// <summary>
 /// Called by EVChargingApi (or WalletGuardService) to stop a session.
 /// Sends RemoteStopTransaction with the correct transactionId (from session,
 /// in-memory, or OCPP DB — whichever is available).
 /// </summary>
-app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, int? transactionId, ChargingDBContext db) =>
-{
-    var socket = ChargingStationConnections.Get(stationId);
-    if (socket == null || socket.State != WebSocketState.Open)
-        return Results.NotFound("Charging station not connected");
+//app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, int? transactionId, ChargingDBContext db, ICommunicator communicator) =>
+//{
+//    var socket = ChargingStationConnections.Get(stationId);
+//    if (socket == null || socket.State != WebSocketState.Open)
+//        return Results.NotFound("Charging station not connected");
 
-    await Communicator.SendStopCharging(socket, stationId, transactionId, db);
+//    await communicator.SendStopCharging(socket, stationId, transactionId, db);
 
-    return Results.Ok(new { stationId, status = "SENT" });
-});
+//    return Results.Ok(new { stationId, status = "SENT" });
+//});
 
 // ── REST API: status and meter polling (called by EVChargingApi) ───────────────
 
@@ -181,19 +271,19 @@ app.MapPost("/api/chargers/{stationId}/stop-session", async (string stationId, i
 /// Returns the live OCPP status of a charger and whether its WebSocket is open.
 /// Used by EVChargingApi's StationsController to enrich connector status.
 /// </summary>
-app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBContext db) =>
-{
-    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
-    if (charger is null) return Results.NotFound();
+//app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBContext db) =>
+//{
+//    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+//    if (charger is null) return Results.NotFound();
 
-    return Results.Ok(new
-    {
-        ocppId,
-        status      = charger.Status.ToString(),
-        isConnected = ChargingStationConnections.Get(ocppId) != null,
-        lastUpdate  = charger.LastUpdate
-    });
-});
+//    return Results.Ok(new
+//    {
+//        ocppId,
+//        status      = charger.Status.ToString(),
+//        isConnected = ChargingStationConnections.Get(ocppId) != null,
+//        lastUpdate  = charger.LastUpdate
+//    });
+//});
 
 /// <summary>
 /// Returns the current meter readings for a charger.
@@ -204,113 +294,96 @@ app.MapGet("/api/chargers/{ocppId}/status", async (string ocppId, ChargingDBCont
 /// currentPowerKw — instantaneous delivery power (computed from consecutive MeterValues).
 /// meterStopWh — set when the charger sends StopTransaction; signals the session is finalised.
 /// </summary>
-app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBContext db) =>
+//app.MapGet("/api/chargers/{ocppId}/meter", async (string ocppId, ChargingDBContext db) =>
+//{
+//    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
+//    if (charger is null) return Results.NotFound();
+
+//    var meterStart = ChargingStationConnections.GetMeterStart(ocppId);
+//    var sessionKwh = (meterStart.HasValue && charger.MeterValue.HasValue)
+//        ? Math.Round((double)(charger.MeterValue.Value - meterStart.Value) / 1000, 3)
+//        : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
+
+//    return Results.Ok(new
+//    {
+//        ocppId,
+//        meterStartWh     = meterStart,
+//        meterValueWh     = charger.MeterValue,
+//        meterStopWh      = (decimal?)null,           // MeterStop lives in EVChargingDB.ChargingSessions
+//        energyKwh        = sessionKwh,              // kWh consumed in current/last session
+//        currentPowerKw   = charger.CurrentPowerKw,  // instantaneous power; null when idle
+//        sessionStartedAt = charger.SessionStartedAt,
+//        lastUpdate       = charger.LastUpdate
+//    });
+//});
+
+// ── REST API: admin plug endpoints ────────────────────────────────────────────
+
+app.MapGet("/api/admin/plugs", async (ChargingDBContext db) =>
 {
-    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
-    if (charger is null) return Results.NotFound();
-
-    var meterStart = ChargingStationConnections.GetMeterStart(ocppId);
-    var sessionKwh = (meterStart.HasValue && charger.MeterValue.HasValue)
-        ? Math.Round((double)(charger.MeterValue.Value - meterStart.Value) / 1000, 3)
-        : Math.Round((double)(charger.MeterValue ?? 0) / 1000, 3);
-
-    return Results.Ok(new
-    {
-        ocppId,
-        meterStartWh     = meterStart,
-        meterValueWh     = charger.MeterValue,
-        meterStopWh      = (decimal?)null,           // MeterStop lives in EVChargingDB.ChargingSessions
-        energyKwh        = sessionKwh,              // kWh consumed in current/last session
-        currentPowerKw   = charger.CurrentPowerKw,  // instantaneous power; null when idle
-        sessionStartedAt = charger.SessionStartedAt,
-        lastUpdate       = charger.LastUpdate
-    });
-});
-
-// ── REST API: admin panel endpoints ───────────────────────────────────────────
-
-/// <summary>Returns all charger records with their current status and meter values.</summary>
-app.MapGet("/api/admin/chargers", async (ChargingDBContext db) =>
-{
-    var chargers = await db.Connectors
-        .OrderBy(c => c.OcppId)
-        .Select(c => new
+    var plugs = await db.Plugs
+        .OrderBy(p => p.OcppId)
+        .Select(p => new
         {
-            c.OcppId, c.Name, c.Address, c.Latitude, c.Longitude,
-            c.IsFastCharger, c.ShowOnMap, c.MaxPowerKw, c.NumberOfConnectors,
-            c.Vendor, c.ChargePointModel, c.FirmwareVersion,
-            status      = c.Status.ToString(),
-            meterStartWh = ChargingStationConnections.GetMeterStart(c.OcppId),
-            c.MeterValue,
-            c.LastUpdate, c.CreatedAt,
-            isConnected = ChargingStationConnections.Get(c.OcppId) != null
+            p.OcppId, p.Status, p.IsOnline,
+            p.IsFastCharger, p.MaxPower,
+            p.Vendor, p.ChargePointModel, p.FirmwareVersion, p.OcppVersion,
+            p.MeterValue, p.LastStatusUpdate, p.CreatedAt,
+            isConnected = ChargingStationConnections.Get(p.OcppId) != null
         })
         .ToListAsync();
 
-    return Results.Ok(chargers);
+    return Results.Ok(plugs);
 });
 
-/// <summary>Updates the admin-editable fields of a charger (name, address, location, etc.).</summary>
-app.MapPut("/api/admin/chargers/{ocppId}", async (string ocppId, ChargerInfoUpdate update, ChargingDBContext db) =>
+app.MapGet("/api/admin/plugs/{ocppId}", async (string ocppId, ChargingDBContext db) =>
 {
-    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
-    if (charger is null) return Results.NotFound($"Charger '{ocppId}' not found.");
-
-    charger.Name               = update.Name;
-    charger.Address            = update.Address;
-    charger.Latitude           = update.Latitude;
-    charger.Longitude          = update.Longitude;
-    charger.IsFastCharger      = update.IsFastCharger;
-    charger.ShowOnMap          = update.ShowOnMap;
-    charger.MaxPowerKw         = update.MaxPowerKw;
-    charger.NumberOfConnectors = update.NumberOfConnectors;
-    await db.SaveChangesAsync();
+    var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == ocppId);
+    if (plug is null) return Results.NotFound($"Plug '{ocppId}' not found.");
 
     return Results.Ok(new
     {
-        charger.OcppId, charger.Name, charger.Address,
-        charger.Latitude, charger.Longitude,
-        charger.IsFastCharger, charger.ShowOnMap, charger.MaxPowerKw
+        plug.OcppId, plug.Status, plug.IsOnline,
+        plug.IsFastCharger, plug.MaxPower,
+        plug.Vendor, plug.ChargePointModel, plug.ChargePointSN,
+        plug.FirmwareVersion, plug.SIMNr, plug.OcppVersion,
+        plug.MeterValue, plug.LastStatusUpdate, plug.CreatedAt,
+        isConnected = ChargingStationConnections.Get(plug.OcppId) != null
     });
 });
 
-/// <summary>Deletes a charger record from the OCPP DB.</summary>
-app.MapDelete("/api/admin/chargers/{ocppId}", async (string ocppId, ChargingDBContext db) =>
+app.MapPost("/api/admin/plugs/{ocppId}/diagnostics", async (string ocppId, GetDiagnosticsBody body, ICommunicator communicator) =>
 {
-    var charger = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == ocppId);
-    if (charger is null) return Results.NotFound($"Charger '{ocppId}' not found.");
-    db.Connectors.Remove(charger);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { deleted = ocppId });
+    if (string.IsNullOrEmpty(body.Location))
+        return Results.BadRequest("location is required");
+
+    var socket = ChargingStationConnections.Get(ocppId);
+    if (socket is null || socket.State != WebSocketState.Open)
+        return Results.Problem($"Charger '{ocppId}' is not connected", statusCode: 503);
+
+    var result = await communicator.SendGetDiagnostics(socket, new GetDiagnosticsRequest
+    {
+        Location      = body.Location,
+        StartTime     = body.StartTime,
+        StopTime      = body.StopTime,
+        Retries       = body.Retries,
+        RetryInterval = body.RetryInterval
+    });
+
+    var fileName = result["fileName"]?.Value<string>();
+    return Results.Ok(new { ocppId, fileName });
 });
 
-/// <summary>
-/// One-shot utility: copies all admin-editable fields from sourceId into targetId,
-/// then deletes sourceId. Used to merge duplicate charger records (e.g. "U030" + "u030").
-/// </summary>
-app.MapPost("/api/admin/chargers/merge", async (string sourceId, string targetId, ChargingDBContext db) =>
+app.MapPut("/api/admin/plugs/{ocppId}", async (string ocppId, PlugAdminUpdate update, ChargingDBContext db) =>
 {
-    var src = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == sourceId);
-    var tgt = await db.Connectors.FirstOrDefaultAsync(c => c.OcppId == targetId);
-    if (src is null) return Results.NotFound($"Source '{sourceId}' not found.");
-    if (tgt is null) return Results.NotFound($"Target '{targetId}' not found.");
+    var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == ocppId);
+    if (plug is null) return Results.NotFound($"Plug '{ocppId}' not found.");
 
-    // Copy human-visible / config fields from src → tgt; preserve tgt's OCPP runtime fields
-    tgt.Name               = src.Name               ?? tgt.Name;
-    tgt.Address            = src.Address             ?? tgt.Address;
-    tgt.Latitude           = src.Latitude            ?? tgt.Latitude;
-    tgt.Longitude          = src.Longitude           ?? tgt.Longitude;
-    tgt.IsFastCharger      = src.IsFastCharger;
-    tgt.ShowOnMap          = src.ShowOnMap;
-    tgt.MaxPowerKw         = src.MaxPowerKw          ?? tgt.MaxPowerKw;
-    tgt.NumberOfConnectors = src.NumberOfConnectors;
-    tgt.MeterValue         = (src.MeterValue > tgt.MeterValue) ? src.MeterValue : tgt.MeterValue;
-    tgt.CreatedAt          = src.CreatedAt; // preserve original creation date
-
-    db.Connectors.Remove(src);
+    plug.IsFastCharger = update.IsFastCharger;
+    plug.MaxPower      = update.MaxPower;
     await db.SaveChangesAsync();
 
-    return Results.Ok(new { merged = sourceId, into = targetId });
+    return Results.Ok(new { plug.OcppId, plug.IsFastCharger, plug.MaxPower });
 });
 
 // ── REST API: trace file access ────────────────────────────────────────────────
@@ -357,7 +430,5 @@ app.MapGet("/api/admin/traces/{filename}", (string filename, string? key, IConfi
 
 app.Run();
 
-// ── Request body types ─────────────────────────────────────────────────────────
-record ChargerInfoUpdate(
-    string? Name, string? Address, double? Latitude, double? Longitude,
-    bool IsFastCharger, bool ShowOnMap, double? MaxPowerKw, int NumberOfConnectors);
+record PlugAdminUpdate(bool IsFastCharger, int MaxPower);
+record GetDiagnosticsBody(string Location, DateTime? StartTime, DateTime? StopTime, int? Retries, int? RetryInterval);

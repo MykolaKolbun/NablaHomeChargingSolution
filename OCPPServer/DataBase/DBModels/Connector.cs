@@ -107,5 +107,7 @@ namespace OCPPServer.DataBase.DBModels
         /// Stored for reference only — not a FK.
         /// </summary>
         public string ChargerSN { get; set; } = string.Empty;
+
+        //TODO: Add field OCPP version from BootNotification, e.g. "1.6" or "2.0.1". Sloud be used to select correct exchange model.
     }
 }

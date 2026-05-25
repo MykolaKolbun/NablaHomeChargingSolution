@@ -43,6 +43,54 @@ namespace OCPPServer
         private static readonly ConcurrentDictionary<string, int> _activeTransactions = new();
 
         /// <summary>
+        /// Pending StartTransaction signals — set by OcppCommandHandler after RemoteStartTransaction
+        /// is Accepted, completed by HandleStartTransaction when the charger confirms the session.
+        /// Keyed by stationId; value resolves with the assigned transactionId.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, TaskCompletionSource<int>> _pendingStartTransactions = new();
+
+        public static TaskCompletionSource<int> RegisterPendingStartTransaction(string stationId)
+        {
+            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingStartTransactions[stationId] = tcs;
+            return tcs;
+        }
+
+        public static void CompletePendingStartTransaction(string stationId, int transactionId)
+        {
+            if (_pendingStartTransactions.TryRemove(stationId, out var tcs))
+                tcs.TrySetResult(transactionId);
+        }
+
+        public static void CancelPendingStartTransaction(string stationId)
+        {
+            if (_pendingStartTransactions.TryRemove(stationId, out var tcs))
+                tcs.TrySetCanceled();
+        }
+
+        // ── Pending StopTransaction signals ───────────────────────────────────────
+        private static readonly ConcurrentDictionary<string, TaskCompletionSource<int>> _pendingStopTransactions = new();
+
+        public static TaskCompletionSource<int> RegisterPendingStopTransaction(string stationId)
+        {
+            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pendingStopTransactions[stationId] = tcs;
+            return tcs;
+        }
+
+        public static void CompletePendingStopTransaction(string stationId, int transactionId)
+        {
+            if (_pendingStopTransactions.TryRemove(stationId, out var tcs))
+                tcs.TrySetResult(transactionId);
+        }
+
+        public static void CancelPendingStopTransaction(string stationId)
+        {
+            if (_pendingStopTransactions.TryRemove(stationId, out var tcs))
+                tcs.TrySetCanceled();
+        }
+
+        /// <summary>
         /// Meter reading (Wh) at session start, stored in-memory from StartTransaction.
         /// Used to calculate session energy (MeterValue − MeterStart) during charging
         /// and passed to EVChargingApi in StopTransaction so it can persist the delta.
@@ -72,7 +120,7 @@ namespace OCPPServer
             => _connections.TryGetValue(stationId, out var socket) ? socket : null;
 
         // ── Transaction management ─────────────────────────────────────────────
-
+        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
         /// <summary>
         /// Assigns and stores a new transactionId for a charger.
         /// Called when sending RemoteStartTransaction so we can include the same
@@ -87,24 +135,30 @@ namespace OCPPServer
             return id;
         }
 
+
+        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
         /// <summary>Returns the current transactionId for a charger, or null if none active.</summary>
         public static int? GetTransaction(string stationId)
             => _activeTransactions.TryGetValue(stationId, out var id) ? id : null;
 
+
+        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
         /// <summary>Removes the transactionId when StopTransaction is received from the charger.</summary>
         public static void ClearTransaction(string stationId)
             => _activeTransactions.TryRemove(stationId, out _);
 
         // ── MeterStart management ──────────────────────────────────────────────
-
+        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
         /// <summary>Stores the meter reading (Wh) at session start. Called from HandleStartTransaction.</summary>
         public static void SetMeterStart(string stationId, decimal valueWh)
             => _meterStarts[stationId] = valueWh;
 
+        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
         /// <summary>Returns the stored MeterStart (Wh) for a charger, or null if not set.</summary>
         public static decimal? GetMeterStart(string stationId)
             => _meterStarts.TryGetValue(stationId, out var v) ? v : null;
 
+        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
         /// <summary>Removes the MeterStart entry when StopTransaction is received.</summary>
         public static void ClearMeterStart(string stationId)
             => _meterStarts.TryRemove(stationId, out _);

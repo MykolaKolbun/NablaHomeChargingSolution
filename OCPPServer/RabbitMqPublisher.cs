@@ -24,6 +24,7 @@ namespace OCPPServer;
 
 public static class RabbitMqPublisher
 {
+    internal static IConnection? SharedConnection => _connection;
     private const string Exchange = "ocpp.events";
 
     private static IConnection? _connection;
@@ -137,4 +138,33 @@ public static class RabbitMqPublisher
         string ocppId, decimal meterValueWh, decimal? meterStartWh, double? currentPowerKw)
         => PublishAsync("charger.meter.updated",
             new { ocppId, meterValueWh, meterStartWh, currentPowerKw });
+
+    /// <summary>
+    /// Charger responded to RemoteStartTransaction. EVChargingApi uses this to
+    /// confirm or reject the session start on the user's side.
+    /// </summary>
+    public static Task PublishRemoteStartResponseAsync(string ocppId, string status, int connectorId, string idTag)
+        => PublishAsync("charger.remote.start.response",
+            new { ocppId, status, connectorId, idTag });
+
+    /// <summary>
+    /// Charger responded to RemoteStopTransaction.
+    /// </summary>
+    public static Task PublishRemoteStopResponseAsync(string ocppId, string status, int? transactionId)
+        => PublishAsync("charger.remote.stop.response",
+            new { ocppId, status, transactionId });
+
+    /// <summary>
+    /// Charger responded to TriggerMessage.
+    /// </summary>
+    public static Task PublishTriggerResponseAsync(string ocppId, string status, string requestedMessage)
+        => PublishAsync("charger.trigger.response",
+            new { ocppId, status, requestedMessage });
+
+    /// <summary>
+    /// Charger sent DiagnosticsStatusNotification — upload progress update.
+    /// </summary>
+    public static Task PublishDiagnosticsStatusAsync(string ocppId, string status)
+        => PublishAsync("charger.diagnostics.status",
+            new { ocppId, status });
 }

@@ -7,6 +7,6 @@ namespace OCPPServer.Data
     {
         public ChargingDBContext(DbContextOptions<ChargingDBContext> options) : base(options) { }
 
-        public DbSet<Connector> Connectors => Set<Connector>();
+        public DbSet<Plug> Plugs => Set<Plug>();
     }
 }
