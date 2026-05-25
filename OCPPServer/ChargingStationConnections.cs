@@ -154,11 +154,15 @@ namespace OCPPServer
             return localId;
         }
 
-        /// <summary>Returns the OCPP 2.1 string transactionId for the active session, or null.</summary>
+        /// <summary>Returns the OCPP 2.x string transactionId for the active session, or null.</summary>
         public static string? GetOcpp21TxId(string stationId)
             => _ocpp21Tx.TryGetValue(stationId, out var v) ? v.OcppTxId : null;
 
-        /// <summary>Removes the OCPP 2.1 transaction mapping when the session ends.</summary>
+        /// <summary>Returns the local int transactionId mapped from the OCPP 2.x string, or null.</summary>
+        public static int? GetOcpp21LocalTxId(string stationId)
+            => _ocpp21Tx.TryGetValue(stationId, out var v) ? v.LocalId : (int?)null;
+
+        /// <summary>Removes the OCPP 2.x transaction mapping when the session ends.</summary>
         public static void ClearOcpp21Transaction(string stationId)
             => _ocpp21Tx.TryRemove(stationId, out _);
 

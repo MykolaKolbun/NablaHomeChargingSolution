@@ -346,8 +346,10 @@ public sealed class Ocpp21Communicator
         WebSocket socket, string messageId, string stationId,
         string ocppTxId, JArray? meterValues, ChargingDBContext db)
     {
-        var meterStopWh    = ExtractEnergyWh(meterValues);
+        var meterStopWh       = ExtractEnergyWh(meterValues);
         var meterStartForStop = ChargingStationConnections.GetMeterStart(stationId);
+        // Read local tx ID before clearing — needed for RabbitMQ event and pending stop signal
+        var localTxId         = ChargingStationConnections.GetOcpp21LocalTxId(stationId) ?? 0;
 
         if (meterStopWh.HasValue)
         {
@@ -366,8 +368,6 @@ public sealed class Ocpp21Communicator
 
         await SendCallResult(socket, messageId, new JObject());
 
-        // Use the local int transactionId if we have a mapping; fall back to 0
-        var localTxId = 0;
         _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
             stationId, localTxId, meterStopWh ?? 0, meterStartForStop);
 

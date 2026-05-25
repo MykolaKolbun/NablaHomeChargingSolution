@@ -1,7 +1,7 @@
 # OCPPServer — RabbitMQ & REST API Specification
 
-**Version:** 1.0  
-**Protocol:** OCPP 1.6J  
+**Version:** 1.1  
+**Protocols:** OCPP 1.6J · OCPP 2.0 · OCPP 2.0.1 · OCPP 2.1  
 **Audience:** Backend services integrating with OCPPServer
 
 ---
@@ -21,7 +21,7 @@
 
 ## 1. Overview
 
-OCPPServer is a stateful WebSocket gateway that speaks OCPP 1.6J to physical charging stations. It bridges charger events to your backend via RabbitMQ and exposes administrative actions via a REST API.
+OCPPServer is a stateful WebSocket gateway that supports OCPP 1.6J, 2.0, 2.0.1, and 2.1. The protocol is negotiated at the WebSocket handshake via the `Sec-WebSocket-Protocol` header; the server always picks the highest version both sides support. From a consumer's perspective the RabbitMQ event and command contracts are identical regardless of which OCPP version the charger uses — differences are absorbed internally.
 
 ```
 Charging Station ←──WebSocket──→ OCPPServer ←──RabbitMQ──→ Your Backend
@@ -84,13 +84,13 @@ Emitted when a charger connects, disconnects, or reports a status change.
 | Field | Type | Notes |
 |---|---|---|
 | `ocppId` | `string` | Station serial / OCPP identity |
-| `status` | `string` | OCPP 1.6 `ChargePointStatus`: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted` |
+| `status` | `string` | Status string from the charger. **OCPP 1.6** values: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted`. **OCPP 2.x** values: `Available`, `Occupied`, `Reserved`, `Unavailable`, `Faulted`. |
 | `connectorId` | `int` | `0` = station-level, `1+` = individual connector |
 | `isConnected` | `bool` | `true` = WebSocket is open, `false` = station has disconnected |
 
 ### 3.2 `charger.transaction.started`
 
-Emitted when a charging session begins (OCPP `StartTransaction.req` received).
+Emitted when a charging session begins (`StartTransaction` on OCPP 1.6; `TransactionEvent(Started)` on OCPP 2.x).
 
 ```json
 {
@@ -103,12 +103,12 @@ Emitted when a charging session begins (OCPP `StartTransaction.req` received).
 | Field | Type | Notes |
 |---|---|---|
 | `ocppId` | `string` | Station identity |
-| `transactionId` | `int` | OCPP-assigned transaction ID |
+| `transactionId` | `int` | Server-assigned transaction ID (OCPP 2.x string IDs are mapped to a local int) |
 | `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if not provided |
 
 ### 3.3 `charger.transaction.stopped`
 
-Emitted when a charging session ends (OCPP `StopTransaction.req` received).
+Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `TransactionEvent(Ended)` on OCPP 2.x).
 
 ```json
 {
