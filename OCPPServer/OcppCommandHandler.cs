@@ -42,7 +42,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         break;
                     }
 
-                    var result = await _communicator.SendStartCharging(socket, cmd.ConnectorId, cmd.IdTag);
+                    var result = await _communicator.SendStartCharging(socket, cmd.OcppId, cmd.ConnectorId, cmd.IdTag);
                     var status = result["status"]?.Value<string>() ?? "Unknown";
 
                     if (status == "Accepted")

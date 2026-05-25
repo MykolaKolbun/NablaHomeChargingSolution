@@ -79,7 +79,7 @@ namespace OCPPServer.DataBase.DBModels
         /// Get or set the serial number of the Charge Point.
         /// </summary>
         [Required]
-        public string ChargePointSN { get; set; }
+        public string ChargePointSN { get; set; } = string.Empty;
 
         /// <summary>
         /// Get or set the firmware version of the Charge Point.
@@ -95,11 +95,12 @@ namespace OCPPServer.DataBase.DBModels
         /// Get or set the OCPP identifier of the Connector during BootNotification. This is the unique identifier that the charger uses to identify itself in OCPP messages.
         /// </summary>
         [Required]
-        public string OcppId { get; set; }
+        public string OcppId { get; set; } = string.Empty;
 
         /// <summary>
-        /// Get or set the OCPP version of the Charge Point.
+        /// Negotiated OCPP sub-protocol, e.g. "ocpp1.6", "ocpp2.1".
+        /// Set at WebSocket handshake and persisted on first BootNotification.
         /// </summary>
-        public string OcppVersion { get; set; }
+        public string OcppVersion { get; set; } = "ocpp1.6";
     }
 }

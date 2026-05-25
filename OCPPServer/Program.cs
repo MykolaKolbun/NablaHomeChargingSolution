@@ -33,6 +33,7 @@ using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
 using OCPPServer.DataBase.DBModels;
 using OCPPServer.OCPP1._6_Models;
+using OCPPServer.OCPP2._1_Models;
 using System;
 using System.Net.WebSockets;
 using System.Text;
@@ -56,8 +57,10 @@ builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
-//---Connection manager and OCPP message router---
-builder.Services.AddSingleton<ICommunicator, Communicator>();
+//---OCPP message handlers and router---
+builder.Services.AddSingleton<Communicator>();           // OCPP 1.6J
+builder.Services.AddSingleton<Ocpp21Communicator>();     // OCPP 2.0.1 / 2.1
+builder.Services.AddSingleton<ICommunicator, OcppRouter>(); // version dispatcher
 
 // ── RabbitMQ consumer (registered before Build so the DI container sees it) ───
 builder.Services.AddHostedService<RabbitMqConsumer>();
@@ -156,31 +159,29 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
         return;
     }
 
-    // READ Sec-WebSocket-Protocol header
-    var protocols = context.Request.Headers["Sec-WebSocket-Protocol"].ToString();
-    OcppTrace.Msg("WS", $"Requested protocols: {protocols}");
+    // Negotiate OCPP sub-protocol — pick the highest version both sides support.
+    // Priority: ocpp2.1 > ocpp2.0.1 > ocpp1.6 > ocpp1.5
+    var protocolHeader = context.Request.Headers["Sec-WebSocket-Protocol"].ToString();
+    OcppTrace.Msg("WS", $"{stationId} offered protocols: {protocolHeader}");
 
-    string? selectedProtocol = null;
+    string selectedProtocol = "ocpp1.6";  // default if charger sends nothing
 
-    if (!string.IsNullOrEmpty(protocols))
+    if (!string.IsNullOrEmpty(protocolHeader))
     {
-        var list = protocols.Split(',')
-                             .Select(p => p.Trim())
-                             .ToList();
+        var offered = protocolHeader.Split(',').Select(p => p.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        if (list.Contains("ocpp1.6"))
-            selectedProtocol = "ocpp1.6";
-        else if (list.Contains("ocpp1.5"))
-            selectedProtocol = "ocpp1.5";
+        if      (offered.Contains("ocpp2.1"))   selectedProtocol = "ocpp2.1";
+        else if (offered.Contains("ocpp2.0.1")) selectedProtocol = "ocpp2.0.1";
+        else if (offered.Contains("ocpp1.6"))   selectedProtocol = "ocpp1.6";
+        else if (offered.Contains("ocpp1.5"))   selectedProtocol = "ocpp1.5";
     }
 
-    using var webSocket = selectedProtocol != null
-        ? await context.WebSockets.AcceptWebSocketAsync(selectedProtocol)
-        : await context.WebSockets.AcceptWebSocketAsync();
+    using var webSocket = await context.WebSockets.AcceptWebSocketAsync(selectedProtocol);
 
     ChargingStationConnections.Add(stationId, webSocket);
+    ChargingStationConnections.SetProtocol(stationId, selectedProtocol);
 
-    OcppTrace.Msg("WS", $"Station {stationId} connected with protocol: {selectedProtocol ?? "none"}");
+    OcppTrace.Msg("WS", $"Station {stationId} connected — protocol: {selectedProtocol}");
 
     var buffer = new byte[1024 * 16];
 

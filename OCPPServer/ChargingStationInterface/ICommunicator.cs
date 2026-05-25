@@ -11,9 +11,9 @@ namespace OCPPServer.ChargingStationInterface
 
         Task RouteOcppMessage(WebSocket socket, string connectorId, string json, ChargingDBContext db);
 
-        Task<JObject> SendStartCharging(WebSocket socket, int connectorId, string idTag);
+        Task<JObject> SendStartCharging(WebSocket socket, string stationId, int connectorId, string idTag);
 
-        Task<JObject> SendStopCharging(WebSocket socket, string connectorId, int? transactionId);
+        Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId);
 
         Task<JObject> SendTriggerMessage(WebSocket socket, string requestedMessage, int? connectorId);
 

@@ -167,6 +167,8 @@ namespace OCPPServer.OCPP1._6_Models
             var existingConnector = await db.Plugs
                 .FirstOrDefaultAsync(c => c.OcppId == connectorId);
 
+            var negotiatedProtocol = ChargingStationConnections.GetProtocol(connectorId);
+
             if (existingConnector == null)
             {
                 db.Plugs.Add(new Plug
@@ -177,6 +179,7 @@ namespace OCPPServer.OCPP1._6_Models
                     ChargePointSN    = req.ChargePointSerialNumber ?? string.Empty,
                     FirmwareVersion  = req.FirmwareVersion,
                     SIMNr            = req.Iccid,
+                    OcppVersion      = negotiatedProtocol,
                     Status           = Enumerators.ChargePointStatus.Available,
                     IsOnline         = true,
                     MeterValue       = 0m,
@@ -199,6 +202,7 @@ namespace OCPPServer.OCPP1._6_Models
                 if (!string.IsNullOrEmpty(req.Iccid))
                     existingConnector.SIMNr = req.Iccid;
 
+                existingConnector.OcppVersion      = negotiatedProtocol;
                 existingConnector.Status           = Enumerators.ChargePointStatus.Available;
                 existingConnector.IsOnline         = true;
                 existingConnector.LastStatusUpdate = DateTime.UtcNow;
@@ -446,7 +450,7 @@ namespace OCPPServer.OCPP1._6_Models
             await SendCallResult(socket, messageId, new JObject());
         }
 
-        public async Task<JObject> SendStartCharging(WebSocket socket, int connectorId, string idTag)
+        public async Task<JObject> SendStartCharging(WebSocket socket, string stationId, int connectorId, string idTag)
         {
             var payload = new JObject
             {
@@ -457,7 +461,7 @@ namespace OCPPServer.OCPP1._6_Models
             return await SendCallAndWaitAsync(socket, "RemoteStartTransaction", payload, TimeSpan.FromSeconds(30));
         }
 
-        public async Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId)
+        public async Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId = null)
         {
             if (transactionId is null)
             {

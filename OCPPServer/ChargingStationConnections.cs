@@ -34,6 +34,15 @@ namespace OCPPServer
         /// </summary>
         private static readonly ConcurrentDictionary<string, WebSocket> _connections = new();
 
+        /// <summary>Negotiated OCPP sub-protocol per connected station, e.g. "ocpp1.6" or "ocpp2.1".</summary>
+        private static readonly ConcurrentDictionary<string, string> _protocols = new();
+
+        /// <summary>
+        /// OCPP 2.1 uses string transactionIds. Maps stationId → (localIntId, ocppStringId)
+        /// so that RemoteStop commands (which carry our local int) can look up the OCPP string.
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, (int LocalId, string OcppTxId)> _ocpp21Tx = new();
+
         /// <summary>
         /// In-memory transactionId assigned at RemoteStartTransaction.
         /// Used to match the correct transactionId in RemoteStopTransaction.
@@ -113,11 +122,45 @@ namespace OCPPServer
 
         /// <summary>Removes the connection entry when the charger disconnects.</summary>
         public static void Remove(string stationId)
-            => _connections.TryRemove(stationId, out _);
+        {
+            _connections.TryRemove(stationId, out _);
+            _protocols.TryRemove(stationId, out _);
+        }
 
         /// <summary>Returns the open WebSocket for a charger, or null if not connected.</summary>
         public static WebSocket? Get(string stationId)
             => _connections.TryGetValue(stationId, out var socket) ? socket : null;
+
+        // ── Protocol version management ────────────────────────────────────────
+
+        /// <summary>Stores the negotiated OCPP sub-protocol for a station after WebSocket handshake.</summary>
+        public static void SetProtocol(string stationId, string protocol)
+            => _protocols[stationId] = protocol;
+
+        /// <summary>Returns the negotiated protocol, defaulting to "ocpp1.6" if unknown.</summary>
+        public static string GetProtocol(string stationId)
+            => _protocols.TryGetValue(stationId, out var p) ? p : "ocpp1.6";
+
+        // ── OCPP 2.1 transaction ID mapping ───────────────────────────────────
+
+        /// <summary>
+        /// Assigns a local int transactionId and maps it to the OCPP 2.1 string transactionId.
+        /// Called when TransactionEvent(Started) is received from a 2.1 charger.
+        /// </summary>
+        public static int RegisterOcpp21Transaction(string stationId, string ocppTxId)
+        {
+            var localId = Interlocked.Increment(ref _transactionCounter);
+            _ocpp21Tx[stationId] = (localId, ocppTxId);
+            return localId;
+        }
+
+        /// <summary>Returns the OCPP 2.1 string transactionId for the active session, or null.</summary>
+        public static string? GetOcpp21TxId(string stationId)
+            => _ocpp21Tx.TryGetValue(stationId, out var v) ? v.OcppTxId : null;
+
+        /// <summary>Removes the OCPP 2.1 transaction mapping when the session ends.</summary>
+        public static void ClearOcpp21Transaction(string stationId)
+            => _ocpp21Tx.TryRemove(stationId, out _);
 
         // ── Transaction management ─────────────────────────────────────────────
         //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
