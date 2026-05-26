@@ -75,6 +75,14 @@ builder.Services.AddSingleton<ICommunicator, OcppRouter>(); // version dispatche
 builder.Services.AddSingleton<ITracingService, TracingService>();
 builder.Services.AddHostedService<ErrorLogCleanupService>();
 
+// Shared TimeZoneInfo for local-time writes (OccurredAt / SolvedAt in ErrorLogs).
+builder.Services.AddSingleton(sp =>
+{
+    var cfg  = sp.GetRequiredService<IConfiguration>();
+    var tzId = cfg["Tracing:TimezoneId"] ?? "Europe/Kyiv";
+    return TimeZoneInfo.FindSystemTimeZoneById(tzId);
+});
+
 // ── RabbitMQ consumer (registered before Build so the DI container sees it) ───
 builder.Services.AddHostedService<RabbitMqConsumer>();
 builder.Services.AddScoped<IOcppCommandHandler, OcppCommandHandler>();
@@ -329,7 +337,7 @@ app.MapGet("/api/admin/error-logs", async (
 /// Marks an error-log entry as solved.
 /// Idempotent — calling it again on an already-solved entry is a no-op (returns 200).
 /// </summary>
-app.MapPatch("/api/admin/error-logs/{id}/solve", async (int id, ChargingDBContext db) =>
+app.MapPatch("/api/admin/error-logs/{id}/solve", async (int id, ChargingDBContext db, TimeZoneInfo tz) =>
 {
     var entry = await db.ErrorLogs.FindAsync(id);
     if (entry is null) return Results.NotFound($"ErrorLog {id} not found.");
@@ -337,7 +345,9 @@ app.MapPatch("/api/admin/error-logs/{id}/solve", async (int id, ChargingDBContex
     if (!entry.IsSolved)
     {
         entry.IsSolved = true;
-        entry.SolvedAt = DateTime.UtcNow;
+        entry.SolvedAt = DateTime.SpecifyKind(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz),
+            DateTimeKind.Unspecified);
         await db.SaveChangesAsync();
     }
 

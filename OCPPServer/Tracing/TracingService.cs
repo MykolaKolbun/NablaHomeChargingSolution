@@ -15,7 +15,10 @@ namespace OCPPServer.Tracing;
 ///
 /// Configuration:
 /// <code>
-///   "Tracing": { "MinPersistLevel": "Warning" }
+///   "Tracing": {
+///     "MinPersistLevel": "Warning",
+///     "TimezoneId": "Europe/Kyiv"
+///   }
 /// </code>
 /// Values: <c>Info</c> | <c>Warning</c> | <c>Error</c> | <c>Critical</c>
 /// </summary>
@@ -24,6 +27,7 @@ public sealed class TracingService : ITracingService
     private readonly ILogger<TracingService> _logger;
     private readonly IServiceScopeFactory    _scopeFactory;
     private readonly ErrorLogLevel           _minPersistLevel;
+    private readonly TimeZoneInfo            _tz;
 
     public TracingService(
         ILogger<TracingService> logger,
@@ -37,7 +41,19 @@ public sealed class TracingService : ITracingService
             configuration["Tracing:MinPersistLevel"], ignoreCase: true, out var lvl)
             ? lvl
             : ErrorLogLevel.Warning;
+
+        var tzId = configuration["Tracing:TimezoneId"] ?? "Europe/Kyiv";
+        _tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
     }
+
+    /// <summary>
+    /// Returns the current local time in the configured timezone as an Unspecified-kind DateTime,
+    /// suitable for storing in a <c>timestamp without time zone</c> column.
+    /// </summary>
+    private DateTime LocalNow() =>
+        DateTime.SpecifyKind(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz),
+            DateTimeKind.Unspecified);
 
     public void Info(string source, string message, string? chargePointId = null, int? sessionId = null)
     {
@@ -92,7 +108,7 @@ public sealed class TracingService : ITracingService
                 Message        = message,
                 ChargePointId  = chargePointId,
                 SessionId      = sessionId,
-                OccurredAt     = DateTime.UtcNow,
+                OccurredAt     = LocalNow(),
             });
             await db.SaveChangesAsync();
         }

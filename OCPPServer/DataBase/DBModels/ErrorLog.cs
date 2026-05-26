@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace OCPPServer.DataBase.DBModels;
 
@@ -24,8 +25,9 @@ public class ErrorLog
     /// an active session. Null outside a transaction.</summary>
     public int? SessionId { get; set; }
 
-    /// <summary>UTC timestamp when the event occurred.</summary>
-    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Local timestamp (Europe/Kyiv) when the event occurred.</summary>
+    [Column(TypeName = "timestamp without time zone")]
+    public DateTime OccurredAt { get; set; }
 
     /// <summary>Severity level.</summary>
     [Required]
@@ -42,7 +44,8 @@ public class ErrorLog
     /// <summary>Set to true by an administrator once the issue has been investigated.</summary>
     public bool IsSolved { get; set; } = false;
 
-    /// <summary>UTC timestamp when the issue was marked as solved.</summary>
+    /// <summary>Local timestamp (Europe/Kyiv) when the issue was marked as solved.</summary>
+    [Column(TypeName = "timestamp without time zone")]
     public DateTime? SolvedAt { get; set; }
 }
 

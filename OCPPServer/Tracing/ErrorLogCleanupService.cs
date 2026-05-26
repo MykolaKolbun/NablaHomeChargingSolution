@@ -10,8 +10,9 @@ namespace OCPPServer.Tracing;
 /// Configuration:
 /// <code>
 ///   "Tracing": {
-///     "RetentionDays":  3,
-///     "CleanupHourUtc": 3
+///     "RetentionDays": 3,
+///     "CleanupHour":   3,
+///     "TimezoneId":    "Europe/Kyiv"
 ///   }
 /// </code>
 /// </summary>
@@ -19,8 +20,9 @@ public sealed class ErrorLogCleanupService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ErrorLogCleanupService> _logger;
-    private readonly int _retentionDays;
-    private readonly int _cleanupHourUtc;
+    private readonly int          _retentionDays;
+    private readonly int          _cleanupHour;
+    private readonly TimeZoneInfo _tz;
 
     private DateTime _lastRanDate = DateTime.MinValue;
 
@@ -29,11 +31,19 @@ public sealed class ErrorLogCleanupService : BackgroundService
         ILogger<ErrorLogCleanupService> logger,
         IConfiguration configuration)
     {
-        _scopeFactory   = scopeFactory;
-        _logger         = logger;
-        _retentionDays  = configuration.GetValue("Tracing:RetentionDays",  3);
-        _cleanupHourUtc = configuration.GetValue("Tracing:CleanupHourUtc", 3);
+        _scopeFactory  = scopeFactory;
+        _logger        = logger;
+        _retentionDays = configuration.GetValue("Tracing:RetentionDays", 3);
+        _cleanupHour   = configuration.GetValue("Tracing:CleanupHour",   3);
+
+        var tzId = configuration["Tracing:TimezoneId"] ?? "Europe/Kyiv";
+        _tz = TimeZoneInfo.FindSystemTimeZoneById(tzId);
     }
+
+    private DateTime LocalNow() =>
+        DateTime.SpecifyKind(
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz),
+            DateTimeKind.Unspecified);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -42,8 +52,8 @@ public sealed class ErrorLogCleanupService : BackgroundService
             try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
             catch (OperationCanceledException) { break; }
 
-            var now = DateTime.UtcNow;
-            if (now.Hour == _cleanupHourUtc && now.Date != _lastRanDate)
+            var now = LocalNow();
+            if (now.Hour == _cleanupHour && now.Date != _lastRanDate)
             {
                 _lastRanDate = now.Date;
                 await RunCleanupAsync(stoppingToken);
@@ -57,7 +67,7 @@ public sealed class ErrorLogCleanupService : BackgroundService
         {
             await using var scope = _scopeFactory.CreateAsyncScope();
             var db      = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
-            var cutoff  = DateTime.UtcNow.AddDays(-_retentionDays);
+            var cutoff  = LocalNow().AddDays(-_retentionDays);
             var deleted = await db.ErrorLogs
                 .Where(e => e.OccurredAt < cutoff)
                 .ExecuteDeleteAsync(ct);

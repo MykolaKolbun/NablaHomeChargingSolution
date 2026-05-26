@@ -165,3 +165,4 @@ The `MapConnectorStatus` function exists solely to store a best-effort value in 
 | 11 | ✅ Fixed | OCPP 1.6 | `Enum.TryParse` was case-sensitive — added `ignoreCase: true` |
 | 12 | ✅ Fixed | OCPP 2.x | Unknown `connectorStatus` was silently mapped to `Available` — now logs warning and leaves DB unchanged |
 | 13 | 🚫 By design | OCPP 2.x | Raw status forwarded to backend verbatim; `Occupied → Charging` mapping only for internal DB display |
+| 14 | ✅ Fixed | DB | `ErrorLogs.OccurredAt` / `SolvedAt` stored as UTC `timestamptz` — changed to local time (`timestamp`) |

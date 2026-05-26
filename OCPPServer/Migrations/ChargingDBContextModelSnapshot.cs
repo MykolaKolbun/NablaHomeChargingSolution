@@ -45,13 +45,13 @@ namespace OCPPServer.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("OccurredAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<int?>("SessionId")
                         .HasColumnType("integer");
 
                     b.Property<DateTime?>("SolvedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Source")
                         .IsRequired()
