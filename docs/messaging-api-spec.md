@@ -1,6 +1,6 @@
 # OCPPServer — RabbitMQ & REST API Specification
 
-**Version:** 1.6  
+**Version:** 1.7  
 **Protocols:** OCPP 1.6J · OCPP 2.0 · OCPP 2.0.1 · OCPP 2.1  
 **Audience:** Backend services integrating with OCPPServer
 
@@ -93,12 +93,14 @@ Emitted when a charger connects, disconnects, or reports a status change.
 | Field | Type | Notes |
 |---|---|---|
 | `ocppId` | `string` | Station serial / OCPP identity |
-| `status` | `string` | Status string from the charger. **OCPP 1.6** values: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted`. **OCPP 2.x** values: `Available`, `Occupied`, `Reserved`, `Unavailable`, `Faulted`. |
+| `status` | `string` | **Exact status string as reported by the charger — never translated by OCPPServer.** OCPP 1.6 values: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted`. OCPP 2.x values: `Available`, `Occupied`, `Reserved`, `Unavailable`, `Faulted`. Interpretation of protocol differences (e.g. `Occupied` vs `Preparing`/`Charging`) is left to the consumer. |
 | `connectorId` | `int` | `0` = station-level, `1+` = individual connector |
 | `isConnected` | `bool` | `true` = WebSocket is open, `false` = station has disconnected |
 | `carId` | `string?` | EVCC ID (vehicle MAC address) if the vehicle identified itself via ISO 15118 / DIN 70121. Present only on status `Preparing` (1.6) / `Occupied` (2.x) and only for DC fast chargers. `null` for all other statuses and for AC chargers. |
 
 > **`carId` lifecycle:** set when the charger sends `Authorize.req` with a vehicle identity token (or from the first `TransactionEvent(Started)` that carries one); cleared when the connector returns to `Available`.
+
+> **OCPP vocabulary note:** `status` is forwarded verbatim — OCPPServer does not translate between OCPP versions. In a mixed fleet, consumers receive `"Preparing"` from 1.6 chargers and `"Occupied"` from 2.x chargers for the same physical state. Map these on the consumer side to your own domain status model.
 
 ### 3.2 `charger.authorize.requested`
 

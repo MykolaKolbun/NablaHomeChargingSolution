@@ -126,6 +126,28 @@ modelBuilder.Entity<Plug>()
 
 ---
 
+## StatusNotification Handling (found during spec review)
+
+### ✅ `Enum.TryParse` case-sensitivity (OCPP 1.6)
+
+**File:** `OCPP1.6 Models/Communicator.cs` — `HandleStatusNotification`
+
+`Enum.TryParse` defaults to case-sensitive matching. A non-compliant charger sending `"charging"` instead of `"Charging"` would silently fail to persist the status. Fixed by adding `ignoreCase: true`.
+
+### ✅ Silent fallback for unknown OCPP 2.x `connectorStatus`
+
+**File:** `OCPP2.1 Models/Ocpp21Communicator.cs` — `MapConnectorStatus`
+
+The switch expression previously returned `Available` for any unrecognised value. Changed to return `null`; the caller now logs a `Warning` and leaves `Plug.Status` unchanged — matching the OCPP 1.6 handler's behaviour.
+
+### 🚫 `Occupied` maps to `Charging` in DB only (by design)
+
+**Design principle:** OCPPServer forwards the charger's status string to RabbitMQ **verbatim** — no translation between OCPP versions. Consumers receive `"Occupied"` from 2.x chargers and `"Preparing"`/`"Charging"` from 1.6 chargers; interpreting these into a domain model is the consumer's responsibility.
+
+The `MapConnectorStatus` function exists solely to store a best-effort value in the `Plugs.Status` DB column for admin panel display. This DB value is not re-published anywhere. Documented in messaging-api-spec.md §3.1.
+
+---
+
 ## Summary Table
 
 | # | Severity | Area | One-liner |
@@ -140,3 +162,6 @@ modelBuilder.Entity<Plug>()
 | 8 | ✅ Fixed | Codebase | Old REST session endpoints are dead commented code |
 | 9 | 🚫 By design | DB model | `Plug.MaxPower` default `21` = 21 kW (standard AC charger); unit is kW |
 | 10 | ✅ Fixed | DB | No index on `Plugs.OcppId` — sequential scan on every OCPP message |
+| 11 | ✅ Fixed | OCPP 1.6 | `Enum.TryParse` was case-sensitive — added `ignoreCase: true` |
+| 12 | ✅ Fixed | OCPP 2.x | Unknown `connectorStatus` was silently mapped to `Available` — now logs warning and leaves DB unchanged |
+| 13 | 🚫 By design | OCPP 2.x | Raw status forwarded to backend verbatim; `Occupied → Charging` mapping only for internal DB display |

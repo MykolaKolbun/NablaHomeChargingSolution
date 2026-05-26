@@ -30,14 +30,16 @@ public sealed class Ocpp21Communicator
     public Ocpp21Communicator(ITracingService tracer) => _tracer = tracer;
 
     // ── ConnectorStatus 2.x → ChargePointStatus 1.6 best-effort mapping ──────────
-    private static Enumerators.ChargePointStatus MapConnectorStatus(string status) => status switch
+    // Returns null for unrecognised values so the caller can log a warning and
+    // leave the DB status unchanged (same behaviour as the OCPP 1.6 handler).
+    private static Enumerators.ChargePointStatus? MapConnectorStatus(string status) => status switch
     {
         "Available"   => Enumerators.ChargePointStatus.Available,
         "Occupied"    => Enumerators.ChargePointStatus.Charging,
         "Reserved"    => Enumerators.ChargePointStatus.Reserved,
         "Unavailable" => Enumerators.ChargePointStatus.Unavailable,
         "Faulted"     => Enumerators.ChargePointStatus.Faulted,
-        _             => Enumerators.ChargePointStatus.Available
+        _             => null
     };
 
     public async Task RouteOcppMessage(WebSocket socket, string stationId, string json, ChargingDBContext db)
@@ -335,7 +337,14 @@ public sealed class Ocpp21Communicator
         var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
         if (plug != null)
         {
-            plug.Status           = MapConnectorStatus(statusStr);
+            var mappedStatus = MapConnectorStatus(statusStr);
+            if (mappedStatus.HasValue)
+                plug.Status = mappedStatus.Value;
+            else
+                _tracer.Warning("StatusNotification",
+                    $"{stationId}: unknown OCPP 2.x connectorStatus '{statusStr}' — DB status not changed",
+                    chargePointId: stationId);
+
             plug.LastStatusUpdate = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }

@@ -280,7 +280,7 @@ namespace OCPPServer.OCPP1._6_Models
 
             if (existingConnector != null)
             {
-                if (Enum.TryParse<Enumerators.ChargePointStatus>(statusStr, out var parsedStatus))
+                if (Enum.TryParse<Enumerators.ChargePointStatus>(statusStr, ignoreCase: true, out var parsedStatus))
                     existingConnector.Status = parsedStatus;
                 else
                     _tracer.Warning("StatusNotification",
