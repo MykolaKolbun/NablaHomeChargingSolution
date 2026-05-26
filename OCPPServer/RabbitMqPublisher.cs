@@ -104,13 +104,30 @@ public static class RabbitMqPublisher
     // ── Public publish methods ─────────────────────────────────────────────────
 
     /// <summary>
+    /// Charger sent Authorize.req with an EVCC ID (ISO 15118 vehicle MAC address).
+    /// Backend should look up the registered car, decide Accepted/Rejected,
+    /// and reply via command.authorize.response { ocppId, status }.
+    /// If no response arrives within 10 s the server rejects automatically.
+    ///
+    /// <paramref name="connectorId"/> is included only when the OCPP version provides it
+    /// (OCPP 2.x <c>evseId</c>). OCPP 1.6 Authorize.req has no EVSE field — pass null
+    /// and the key will be omitted entirely from the published JSON.
+    /// </summary>
+    public static Task PublishAuthorizeRequestedAsync(string ocppId, string carId, int? connectorId = null)
+    {
+        var payload = new Dictionary<string, object?> { ["ocppId"] = ocppId, ["carId"] = carId };
+        if (connectorId.HasValue) payload["connectorId"] = connectorId.Value;
+        return PublishAsync("charger.authorize.requested", payload);
+    }
+
+    /// <summary>
     /// Charger sent StatusNotification or disconnected from the WebSocket.
     /// EVChargingApi uses this to push a live status update to the app via SignalR.
     /// </summary>
     public static Task PublishStatusChangedAsync(
-        string ocppId, string status, int connectorId, bool isConnected)
+        string ocppId, string status, int connectorId, bool isConnected, string? carId = null)
         => PublishAsync("charger.status.changed",
-            new { ocppId, status, connectorId, isConnected });
+            new { ocppId, status, connectorId, isConnected, carId });
 
     /// <summary>
     /// Charger confirmed StartTransaction. EVChargingApi stores the OCPP

@@ -1,8 +1,9 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json.Linq;
 using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
 using OCPPServer.OCPP1._6_Models;
+using OCPPServer.Tracing;
 using System.Net.WebSockets;
 using System.Text.Json;
 
@@ -10,13 +11,15 @@ namespace OCPPServer;
 
 public sealed class OcppCommandHandler : IOcppCommandHandler
 {
-    private readonly ICommunicator _communicator;
+    private readonly ICommunicator     _communicator;
     private readonly ChargingDBContext _db;
+    private readonly ITracingService   _tracer;
 
-    public OcppCommandHandler(ICommunicator communicator, ChargingDBContext db)
+    public OcppCommandHandler(ICommunicator communicator, ChargingDBContext db, ITracingService tracer)
     {
         _communicator = communicator;
-        _db = db;
+        _db           = db;
+        _tracer       = tracer;
     }
 
     public async Task HandleAsync(string routingKey, string json, CancellationToken ct)
@@ -31,14 +34,15 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     // Validate required fields per OCPP 1.6
                     if (string.IsNullOrEmpty(cmd.OcppId) || string.IsNullOrEmpty(cmd.IdTag) || cmd.ConnectorId < 0)
                     {
-                        OcppTrace.Error("RMQ-Consumer", $"[remote.start] invalid payload — ocppId='{cmd.OcppId}' idTag='{cmd.IdTag}' connectorId={cmd.ConnectorId}");
+                        _tracer.Warning("RemoteStart",
+                            $"Invalid payload — ocppId='{cmd.OcppId}' idTag='{cmd.IdTag}' connectorId={cmd.ConnectorId}");
                         break;
                     }
 
-                    var socket = ChargingStationConnections.Get(cmd.OcppId);
+                    var socket = ChargingStationConnections.GetSocket(cmd.OcppId);
                     if (socket is null || socket.State != WebSocketState.Open)
                     {
-                        OcppTrace.Msg("RMQ-Consumer", $"[remote.start] {cmd.OcppId} not connected — discarding");
+                        OcppTrace.Msg("RemoteStart", $"{cmd.OcppId} not connected — discarding");
                         break;
                     }
 
@@ -69,7 +73,9 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         catch (OperationCanceledException)
                         {
                             ChargingStationConnections.CancelPendingStartTransaction(cmd.OcppId);
-                            OcppTrace.Error("RMQ-Consumer", $"[remote.start] {cmd.OcppId} — StartTransaction not received within 60 s");
+                            _tracer.Warning("RemoteStart",
+                                $"{cmd.OcppId} — StartTransaction not received within 60 s",
+                                chargePointId: cmd.OcppId);
                         }
                     }
                     else
@@ -85,14 +91,15 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     if (string.IsNullOrEmpty(cmd.OcppId) || cmd.TransactionId is null)
                     {
-                        OcppTrace.Error("RMQ-Consumer", $"[remote.stop] invalid payload — ocppId='{cmd.OcppId}' transactionId={cmd.TransactionId}");
+                        _tracer.Warning("RemoteStop",
+                            $"Invalid payload — ocppId='{cmd.OcppId}' transactionId={cmd.TransactionId}");
                         break;
                     }
 
-                    var socket = ChargingStationConnections.Get(cmd.OcppId);
+                    var socket = ChargingStationConnections.GetSocket(cmd.OcppId);
                     if (socket is null || socket.State != WebSocketState.Open)
                     {
-                        OcppTrace.Msg("RMQ-Consumer", $"[remote.stop] {cmd.OcppId} not connected — discarding");
+                        OcppTrace.Msg("RemoteStop", $"{cmd.OcppId} not connected — discarding");
                         break;
                     }
 
@@ -121,7 +128,9 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         catch (OperationCanceledException)
                         {
                             ChargingStationConnections.CancelPendingStopTransaction(cmd.OcppId);
-                            OcppTrace.Error("RMQ-Consumer", $"[remote.stop] {cmd.OcppId} — StopTransaction not received within 60 s");
+                            _tracer.Warning("RemoteStop",
+                                $"{cmd.OcppId} — StopTransaction not received within 60 s",
+                                chargePointId: cmd.OcppId);
                             await RabbitMqPublisher.PublishRemoteStopResponseAsync(cmd.OcppId, "Timeout", cmd.TransactionId);
                         }
                     }
@@ -144,11 +153,12 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     if (string.IsNullOrEmpty(ocppId) || string.IsNullOrEmpty(requestedMessage))
                     {
-                        OcppTrace.Error("RMQ-Consumer", $"[commandreq] invalid payload — ocppId='{ocppId}' requestedMessage='{requestedMessage}'");
+                        _tracer.Warning("RMQ-Consumer",
+                            $"[commandreq] invalid payload — ocppId='{ocppId}' requestedMessage='{requestedMessage}'");
                         break;
                     }
 
-                    var socket = ChargingStationConnections.Get(ocppId);
+                    var socket = ChargingStationConnections.GetSocket(ocppId);
                     if (socket is null || socket.State != WebSocketState.Open)
                     {
                         OcppTrace.Msg("RMQ-Consumer", $"[commandreq] {ocppId} not connected — discarding");
@@ -171,11 +181,11 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     if (string.IsNullOrEmpty(ocppId))
                     {
-                        OcppTrace.Error("RMQ-Consumer", "[statusreq] invalid payload — ocppId is missing");
+                        _tracer.Warning("RMQ-Consumer", "[statusreq] invalid payload — ocppId is missing");
                         break;
                     }
 
-                    var socket = ChargingStationConnections.Get(ocppId);
+                    var socket = ChargingStationConnections.GetSocket(ocppId);
                     if (socket is null || socket.State != WebSocketState.Open)
                     {
                         OcppTrace.Msg("RMQ-Consumer", $"[statusreq] {ocppId} not connected — discarding");
@@ -187,6 +197,26 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, "StatusNotification");
                     break;
                 }
+
+            case "command.authorize.response":
+                {
+                    var ocppId = payload.RootElement.TryGetProperty("ocppId", out var idEl)
+                        ? idEl.GetString() : null;
+                    var status = payload.RootElement.TryGetProperty("status", out var stEl)
+                        ? stEl.GetString() : null;
+
+                    if (string.IsNullOrEmpty(ocppId) || string.IsNullOrEmpty(status))
+                    {
+                        _tracer.Warning("Authorize",
+                            $"[authorize.response] invalid payload — ocppId='{ocppId}' status='{status}'");
+                        break;
+                    }
+
+                    _tracer.Info("Authorize", $"{ocppId}: backend authorize response — status={status}");
+                    ChargingStationConnections.CompletePendingAuthorize(ocppId, status);
+                    break;
+                }
+
             default:
                 OcppTrace.Msg("RMQ-Consumer", $"Unknown command: {routingKey}");
                 break;

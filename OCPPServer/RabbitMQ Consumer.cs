@@ -1,4 +1,5 @@
 ﻿
+using OCPPServer.Tracing;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
@@ -11,9 +12,13 @@ namespace OCPPServer
         private const string CommandQueue = "ocpp.server.commands";
 
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly ITracingService      _tracer;
 
-        public RabbitMqConsumer(IServiceScopeFactory scopeFactory)
-            => _scopeFactory = scopeFactory;
+        public RabbitMqConsumer(IServiceScopeFactory scopeFactory, ITracingService tracer)
+        {
+            _scopeFactory = scopeFactory;
+            _tracer       = tracer;
+        }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -62,7 +67,7 @@ namespace OCPPServer
                 }
                 catch (Exception ex)
                 {
-                    OcppTrace.Error("RMQ-Consumer", $"'{ea.RoutingKey}' failed: {ex.Message}");
+                    _tracer.Exception("RMQ-Consumer", ex, $"Command '{ea.RoutingKey}' failed");
                     await channel.BasicNackAsync(ea.DeliveryTag, multiple: false, requeue: false);
                 }
             };

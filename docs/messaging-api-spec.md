@@ -1,6 +1,6 @@
 # OCPPServer — RabbitMQ & REST API Specification
 
-**Version:** 1.1  
+**Version:** 1.6  
 **Protocols:** OCPP 1.6J · OCPP 2.0 · OCPP 2.0.1 · OCPP 2.1  
 **Audience:** Backend services integrating with OCPPServer
 
@@ -13,6 +13,14 @@
 3. [Outbound Events (OCPPServer → Consumers)](#3-outbound-events-ocppserver--consumers)
 4. [Inbound Commands (Consumers → OCPPServer)](#4-inbound-commands-consumers--ocppserver)
 5. [REST API](#5-rest-api)
+   - 5.1 List All Plugs
+   - 5.2 Get Plug Detail
+   - 5.3 Update Plug Metadata
+   - 5.4 Request Diagnostics
+   - 5.5 List Error Logs
+   - 5.6 Mark Error Log as Solved
+   - 5.7 List Trace Files
+   - 5.8 Download Trace File
 6. [Configuration](#6-configuration)
 7. [Sequence Flows](#7-sequence-flows)
 8. [Error Handling](#8-error-handling)
@@ -75,9 +83,10 @@ Emitted when a charger connects, disconnects, or reports a status change.
 ```json
 {
   "ocppId":      "CP-001",
-  "status":      "Available",
+  "status":      "Preparing",
   "connectorId": 1,
-  "isConnected": true
+  "isConnected": true,
+  "carId":       "001681020001"
 }
 ```
 
@@ -87,16 +96,41 @@ Emitted when a charger connects, disconnects, or reports a status change.
 | `status` | `string` | Status string from the charger. **OCPP 1.6** values: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted`. **OCPP 2.x** values: `Available`, `Occupied`, `Reserved`, `Unavailable`, `Faulted`. |
 | `connectorId` | `int` | `0` = station-level, `1+` = individual connector |
 | `isConnected` | `bool` | `true` = WebSocket is open, `false` = station has disconnected |
+| `carId` | `string?` | EVCC ID (vehicle MAC address) if the vehicle identified itself via ISO 15118 / DIN 70121. Present only on status `Preparing` (1.6) / `Occupied` (2.x) and only for DC fast chargers. `null` for all other statuses and for AC chargers. |
 
-### 3.2 `charger.transaction.started`
+> **`carId` lifecycle:** set when the charger sends `Authorize.req` with a vehicle identity token (or from the first `TransactionEvent(Started)` that carries one); cleared when the connector returns to `Available`.
+
+### 3.2 `charger.authorize.requested`
+
+Emitted when a DC fast charger sends an `Authorize.req` carrying a vehicle identity (EVCC ID). **OCPPServer is waiting for your response** — you must publish `command.authorize.response` within **10 seconds** or the server will automatically reject the vehicle.
+
+```json
+// OCPP 2.x with evseId present
+{ "ocppId": "CP-001", "carId": "001681020001", "connectorId": 1 }
+
+// OCPP 1.6, or OCPP 2.x without evseId
+{ "ocppId": "CP-001", "carId": "001681020001" }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `ocppId` | `string` | Station identity |
+| `carId` | `string` | EVCC ID (hex MAC address, no colons) — uniquely identifies the vehicle |
+| `connectorId` | `int` | *(optional)* EVSE/connector number (1-based). Present only for OCPP 2.x chargers that include `evseId` in their `Authorize.req`. **Key is absent entirely** for OCPP 1.6 (which has no EVSE field in Authorize) and for 2.x chargers that omit `evseId`. |
+
+**Required response:** publish `command.authorize.response` within 10 s (see §4.3).
+
+> This event is only emitted for vehicle-identity tokens (`VID:` prefix in OCPP 1.6; `type=MacAddress` in OCPP 2.x). Regular RFID / app tokens are accepted immediately without publishing this event.
+
+### 3.3 `charger.transaction.started`
 
 Emitted when a charging session begins (`StartTransaction` on OCPP 1.6; `TransactionEvent(Started)` on OCPP 2.x).
 
 ```json
 {
-  "ocppId":       "CP-001",
+  "ocppId":        "CP-001",
   "transactionId": 42,
-  "meterStartWh": 12500.00
+  "meterStartWh":  12500.00
 }
 ```
 
@@ -106,7 +140,7 @@ Emitted when a charging session begins (`StartTransaction` on OCPP 1.6; `Transac
 | `transactionId` | `int` | Server-assigned transaction ID (OCPP 2.x string IDs are mapped to a local int) |
 | `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if not provided |
 
-### 3.3 `charger.transaction.stopped`
+### 3.4 `charger.transaction.stopped`
 
 Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `TransactionEvent(Ended)` on OCPP 2.x).
 
@@ -128,7 +162,7 @@ Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `Transactio
 
 **Energy consumed** = `meterStopWh - meterStartWh`
 
-### 3.4 `charger.meter.updated`
+### 3.5 `charger.meter.updated`
 
 Emitted periodically during a session when the charger sends `MeterValues` notifications.
 
@@ -137,7 +171,8 @@ Emitted periodically during a session when the charger sends `MeterValues` notif
   "ocppId":          "CP-001",
   "meterValueWh":    15320.50,
   "meterStartWh":    12500.00,
-  "currentPowerKw":  7.4
+  "currentPowerKw":  7.4,
+  "soc":             82.5
 }
 ```
 
@@ -149,7 +184,7 @@ Emitted periodically during a session when the charger sends `MeterValues` notif
 | `currentPowerKw` | `double?` | Active power in kW; directly reported by charger (`Power.Active.Import`) or derived from consecutive energy readings; `null` if unavailable |
 | `soc` | `decimal?` | State of Charge (%, 0–100); only populated by DC fast chargers that communicate with the vehicle BMS; `null` for AC chargers |
 
-### 3.5 `charger.remote.start.response`
+### 3.6 `charger.remote.start.response`
 
 Response to a `command.remote.start` command.
 
@@ -169,7 +204,7 @@ Response to a `command.remote.start` command.
 | `connectorId` | `int` | Connector the session started on |
 | `idTag` | `string` | ID tag from the original command |
 
-### 3.6 `charger.remote.stop.response`
+### 3.7 `charger.remote.stop.response`
 
 Response to a `command.remote.stop` command.
 
@@ -187,7 +222,7 @@ Response to a `command.remote.stop` command.
 | `status` | `string` | `Accepted` — session stopped (StopTransaction received within 60 s); `Rejected` — station refused; `Timeout` — no StopTransaction within 60 s |
 | `transactionId` | `int?` | Transaction ID from the original command; `null` if not provided |
 
-### 3.7 `charger.trigger.response`
+### 3.8 `charger.trigger.response`
 
 Response to `command.commandreq` or `command.statusreq`.
 
@@ -205,7 +240,7 @@ Response to `command.commandreq` or `command.statusreq`.
 | `status` | `string` | OCPP `TriggerMessageStatus`: `Accepted`, `Rejected`, `NotImplemented` |
 | `requestedMessage` | `string` | The message type that was triggered |
 
-### 3.8 `charger.diagnostics.status`
+### 3.9 `charger.diagnostics.status`
 
 Emitted when a charger sends a `DiagnosticsStatusNotification` (after a `GetDiagnostics` request).
 
@@ -273,7 +308,27 @@ Remotely stop an active charging session.
 2. If the charger responds `Accepted`, OCPPServer waits up to **60 seconds** for `StopTransaction.req`.
 3. Publishes `charger.remote.stop.response` with `Accepted`, `Rejected`, or `Timeout`.
 
-### 4.3 `command.commandreq`
+### 4.3 `command.authorize.response`
+
+Reply to a `charger.authorize.requested` event. Must be published **within 10 seconds** or the vehicle is automatically rejected.
+
+```json
+{
+  "ocppId": "CP-001",
+  "status": "Accepted"
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `ocppId` | `string` | yes | Station identity from the event |
+| `status` | `string` | yes | `Accepted` — vehicle may charge; `Rejected` — vehicle refused |
+
+**Flow when `Accepted`:** OCPPServer responds `Accepted` to the charger's `Authorize.req`. The charger starts the session automatically and sends `StartTransaction` / `TransactionEvent(Started)` — no `command.remote.start` needed.
+
+**Flow when `Rejected` (or timeout):** OCPPServer responds `Rejected`. Most chargers remain in `Preparing` status waiting for another authorization method (RFID card, app). At that point the normal `charger.status.changed { status: "Preparing" }` event fires and the usual remote-start flow applies.
+
+### 4.4 `command.commandreq`
 
 Trigger any OCPP 1.6 message from the charger via `TriggerMessage`.
 
@@ -293,7 +348,7 @@ Trigger any OCPP 1.6 message from the charger via `TriggerMessage`.
 
 Publishes `charger.trigger.response` on completion.
 
-### 4.4 `command.statusreq`
+### 4.5 `command.statusreq`
 
 Shorthand for `TriggerMessage(StatusNotification)` — triggers a status report from the charger.
 
@@ -328,24 +383,48 @@ GET /api/admin/plugs
 ```json
 [
   {
-    "ocppId":       "CP-001",
+    "ocppId":        "CP-001",
+    "status":        "Charging",
+    "isOnline":      true,
     "isFastCharger": false,
-    "maxPower":     7400,
-    "isConnected":  true,
-    "status":       "Charging",
-    "connectorId":  1
+    "maxPower":      22,
+    "vendor":        "Wall Box Chargers",
+    "chargePointModel": "PLP1-W-2-4-8",
+    "firmwareVersion":  "6.2.0",
+    "ocppVersion":   "ocpp1.6",
+    "lastStatusUpdate": "2026-05-25T14:30:00Z",
+    "createdAt":     "2026-01-15T09:00:00Z",
+    "isConnected":   true,
+    "meterValueWh":  15320.50,
+    "meterStartWh":  12500.00,
+    "currentPowerKw": 7.4,
+    "stateOfCharge": 82.5,
+    "meterType":     "External MID"
   }
 ]
 ```
 
-| Field | Type | Notes |
-|---|---|---|
-| `ocppId` | `string` | Station OCPP identity |
-| `isFastCharger` | `bool` | Metadata flag |
-| `maxPower` | `int` | Maximum power in watts |
-| `isConnected` | `bool` | Real-time WebSocket connection state |
-| `status` | `string` | Last known OCPP status |
-| `connectorId` | `int` | Connector number |
+| Field | Type | Source | Notes |
+|---|---|---|---|
+| `ocppId` | `string` | DB | Station OCPP identity |
+| `status` | `string` | DB | Last known OCPP status |
+| `isOnline` | `bool` | DB | Updated by BootNotification and Heartbeat |
+| `isFastCharger` | `bool` | DB | Admin-set flag |
+| `maxPower` | `int` | DB | Admin-set max power in kW |
+| `vendor` | `string?` | DB | From BootNotification |
+| `chargePointModel` | `string?` | DB | From BootNotification |
+| `firmwareVersion` | `string?` | DB | From BootNotification |
+| `ocppVersion` | `string` | DB | Negotiated OCPP protocol |
+| `lastStatusUpdate` | `datetime?` | DB | Timestamp of last DB write |
+| `createdAt` | `datetime` | DB | First seen |
+| `isConnected` | `bool` | Live | WebSocket currently open |
+| `meterValueWh` | `decimal?` | Live | Latest energy reading (Wh); `null` if no session |
+| `meterStartWh` | `decimal?` | Live | Session start meter (Wh); `null` if no active session |
+| `currentPowerKw` | `double?` | Live | Instantaneous power; `null` if unavailable |
+| `stateOfCharge` | `decimal?` | Live | Battery SoC %; DC fast chargers only |
+| `meterType` | `string?` | Live | `"Internal"`, `"External MID"`, or `"Internal NON compliant"` (Wallbox); `null` if not connected |
+
+> **Live fields** are sourced from the in-memory `ConnectorState` and are only present while the charger is connected. They reset to `null` on server restart.
 
 ### 5.2 Get Plug Detail
 
@@ -359,7 +438,7 @@ GET /api/admin/plugs/{ocppId}
 |---|---|---|
 | `ocppId` | `string` | Station OCPP identity |
 
-**Response 200:** Same object shape as a single item from the list above.
+**Response 200:** Same object shape as a single item from the list above, plus `chargePointSN` and `SIMNr` fields.
 
 **Response 404:**
 ```json
@@ -378,14 +457,14 @@ Content-Type: application/json
 ```json
 {
   "isFastCharger": true,
-  "maxPower":      22000
+  "maxPower":      22
 }
 ```
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `isFastCharger` | `bool` | yes | Marks station as fast charger |
-| `maxPower` | `int` | yes | Maximum power in watts |
+| `maxPower` | `int` | yes | Maximum power in kW |
 
 **Response 200:**
 ```json
@@ -410,10 +489,10 @@ Sends a `GetDiagnostics` OCPP command to the charger. The charger will upload it
 
 ```json
 {
-  "location":     "ftp://diagnostics.example.com/uploads/",
-  "startTime":    "2026-05-01T00:00:00Z",
-  "stopTime":     "2026-05-25T23:59:59Z",
-  "retries":      3,
+  "location":      "ftp://diagnostics.example.com/uploads/",
+  "startTime":     "2026-05-01T00:00:00Z",
+  "stopTime":      "2026-05-25T23:59:59Z",
+  "retries":       3,
   "retryInterval": 60
 }
 ```
@@ -436,7 +515,85 @@ Sends a `GetDiagnostics` OCPP command to the charger. The charger will upload it
 
 **Response 404:** Station not connected.
 
-### 5.5 List Trace Files
+### 5.5 List Error Logs
+
+```
+GET /api/admin/error-logs
+```
+
+Returns persisted trace entries from the `ErrorLogs` database table, written by `TracingService`. Results are ordered newest-first.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| `chargePointId` | `string` | *(all)* | Filter to a single charger by OcppId (exact match) |
+| `minLevel` | `string` | `Warning` | Minimum severity: `Info` \| `Warning` \| `Error` \| `Critical` |
+| `limit` | `int` | `200` | Maximum number of rows to return |
+
+**Examples:**
+```
+GET /api/admin/error-logs
+GET /api/admin/error-logs?chargePointId=u030
+GET /api/admin/error-logs?minLevel=Error
+GET /api/admin/error-logs?chargePointId=u030&minLevel=Error&limit=50
+```
+
+**Response 200:**
+```json
+[
+  {
+    "id":             42,
+    "chargePointId":  "u030",
+    "sessionId":      17,
+    "occurredAt":     "2026-05-26T08:51:36Z",
+    "level":          "Error",
+    "source":         "Watcher",
+    "message":        "u030: no message for 180s — aborting socket",
+    "isSolved":       false,
+    "solvedAt":       null
+  }
+]
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `int` | Primary key |
+| `chargePointId` | `string?` | OcppId of the affected charger; `null` for infrastructure events |
+| `sessionId` | `int?` | Active `LocalTxId` at the time of the event; `null` outside a session |
+| `occurredAt` | `datetime` | UTC timestamp when the event was recorded |
+| `level` | `string` | Severity name: `Info`, `Warning`, `Error`, `Critical` |
+| `source` | `string` | Subsystem tag (e.g. `"Watcher"`, `"OCPP"`, `"RemoteStart"`, `"Authorize"`) |
+| `message` | `string` | Human-readable description; for `Critical` entries includes the exception type and full stack trace |
+| `isSolved` | `bool` | Admin-settable resolved flag; always `false` on creation |
+| `solvedAt` | `datetime?` | UTC timestamp when marked solved; `null` if not yet resolved |
+
+> Rows older than `Tracing:RetentionDays` (default 3) are automatically deleted daily by `ErrorLogCleanupService` at `Tracing:CleanupHourUtc` (default 03:00 UTC).
+
+### 5.6 Mark Error Log as Solved
+
+```
+PATCH /api/admin/error-logs/{id}/solve
+```
+
+Marks a single entry as resolved. Sets `isSolved = true` and records the current UTC time in `solvedAt`. Idempotent — calling it on an already-solved entry returns `200` without modifying `solvedAt` again.
+
+**Path parameters:**
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `id` | `int` | Primary key of the `ErrorLog` row |
+
+**Response 200:**
+```json
+{ "id": 42, "isSolved": true, "solvedAt": "2026-05-26T10:15:00Z" }
+```
+
+**Response 404:** No entry with the given `id`.
+
+---
+
+### 5.7 List Trace Files
 
 ```
 GET /api/admin/traces?key=<secret>
@@ -463,7 +620,7 @@ Returns a list of rolling trace log files stored on the server.
 
 **Response 401:** Missing or incorrect `key`.
 
-### 5.6 Download Trace File
+### 5.8 Download Trace File
 
 ```
 GET /api/admin/traces/{filename}?key=<secret>
@@ -490,10 +647,10 @@ OCPPServer reads its configuration from `appsettings.json` (overridable by envir
 ```json
 {
   "RabbitMq": {
-    "Host":     "rabbitmq.example.com",
-    "Port":     5672,
-    "Username": "ocpp",
-    "Password": "secret",
+    "Host":       "rabbitmq.example.com",
+    "Port":       5672,
+    "Username":   "ocpp",
+    "Password":   "secret",
     "VirtualHost": "/"
   },
   "ConnectionStrings": {
@@ -502,6 +659,15 @@ OCPPServer reads its configuration from `appsettings.json` (overridable by envir
   "Trace": {
     "Directory":   "logs/traces",
     "DownloadKey": "<secret-key-for-trace-download>"
+  },
+  "Tracing": {
+    "MinPersistLevel": "Warning",
+    "RetentionDays":   3,
+    "CleanupHourUtc":  3
+  },
+  "ChargerWatcher": {
+    "CheckIntervalSeconds":       30,
+    "InactivityThresholdSeconds": 180
   }
 }
 ```
@@ -513,12 +679,49 @@ OCPPServer reads its configuration from `appsettings.json` (overridable by envir
 | `RabbitMq:Username` / `Password` | Broker credentials |
 | `RabbitMq:VirtualHost` | Default `/` |
 | `Trace:DownloadKey` | Shared secret for the `/api/admin/traces` endpoints |
+| `Tracing:MinPersistLevel` | Minimum `ErrorLogLevel` written to the `ErrorLogs` table. Values: `Info`, `Warning`, `Error`, `Critical`. Default `Warning`. |
+| `Tracing:RetentionDays` | Error log rows older than this many days are deleted by the daily cleanup job. Default `3`. |
+| `Tracing:CleanupHourUtc` | UTC hour (0–23) when the daily cleanup runs. Default `3` (03:00 UTC). |
+| `ChargerWatcher:CheckIntervalSeconds` | How often the watcher scans all connected chargers (default `30`) |
+| `ChargerWatcher:InactivityThresholdSeconds` | Seconds of silence before a charger is considered dead (default `180`). With a 60-second heartbeat interval this equals ~3 missed heartbeats. |
 
 ---
 
 ## 7. Sequence Flows
 
-### 7.1 Remote Start Session
+### 7.1 ISO 15118 Auto-Authorize (DC fast charger, vehicle identity)
+
+```
+Backend                    OCPPServer                  Charger
+   │                           │                          │
+   │                           │◄── Authorize.req ────────│
+   │                           │    { idTag: "VID:ABC" }  │
+   │                           │                          │
+   │◄── charger.authorize.requested ──│                   │
+   │    { ocppId, carId: "ABC" }      │                   │
+   │                           │      (10 s window)       │
+   │── command.authorize.response ───►│                   │
+   │   { ocppId, status: "Accepted" } │                   │
+   │                           │── Authorize.conf ────────►│
+   │                           │   { status: "Accepted" } │
+   │                           │                          │ (starts automatically)
+   │                           │◄── StartTransaction ─────│
+   │◄── charger.transaction.started ──│                   │
+```
+
+If backend responds `Rejected` or does not respond within 10 s:
+```
+   │                           │── Authorize.conf ────────►│
+   │                           │   { status: "Rejected" } │
+   │                           │                          │ (falls back to Preparing)
+   │                           │◄── StatusNotification ───│
+   │                           │    { status: "Preparing" }│
+   │◄── charger.status.changed ──│                         │
+   │    { status: "Preparing",     │                       │
+   │      carId: "ABC" }           │                       │
+```
+
+### 7.2 Remote Start Session
 
 ```
 Your Backend                    OCPPServer               Charger
@@ -547,7 +750,7 @@ If no `StartTransaction` arrives within 60 s:
      │◄── charger.remote.start.response (Timeout) ──│
 ```
 
-### 7.2 Remote Stop Session
+### 7.3 Remote Stop Session
 
 ```
 Your Backend                    OCPPServer               Charger
@@ -564,7 +767,7 @@ Your Backend                    OCPPServer               Charger
      │◄── charger.remote.stop.response (Accepted) ──│             │
 ```
 
-### 7.3 Organic Session (charger-initiated)
+### 7.4 Organic Session (charger-initiated)
 
 ```
 Your Backend                    OCPPServer               Charger
@@ -591,6 +794,12 @@ Your Backend                    OCPPServer               Charger
 - If the target charger is **not connected**, the command is nacked (not re-queued) and no response event is emitted. Your backend should set a reasonable timeout when waiting for a response event.
 - Command processing is **synchronous per connection** — OCPPServer waits for the charger response before processing the next command from the queue.
 
+### `charger.authorize.requested` Timeout
+
+- OCPPServer holds the charger's `Authorize.req` open while waiting.
+- If `command.authorize.response` is not received within **10 seconds**, the server responds `Rejected` to the charger and logs a warning.
+- Design your backend consumer to respond in under 2–3 seconds to leave headroom.
+
 ### REST API
 
 - All 4xx/5xx responses include a JSON body `{ "error": "<description>" }`.
@@ -598,5 +807,16 @@ Your Backend                    OCPPServer               Charger
 
 ### Connection Loss
 
-- When a charger disconnects, OCPPServer emits `charger.status.changed` with `isConnected: false`.
-- In-flight command waits (remote start/stop) will time out after 60 seconds and emit a `Timeout` response event.
+- When a charger disconnects (clean close or watcher-triggered abort), OCPPServer emits `charger.status.changed` with `isConnected: false`.
+- In-flight command waits (remote start/stop, authorize) will time out and emit a `Timeout` or `Rejected` response event.
+
+### Silent Disconnects and the Charger Watcher
+
+Some chargers drop the TCP connection without sending a WebSocket Close frame (network loss, SIM card reset, firmware hang). The server's WebSocket receive loop hangs waiting for data that never arrives. `ChargerWatcherService` resolves this:
+
+- Every `ChargerWatcher:CheckIntervalSeconds` (default 30 s) it scans all connected stations.
+- Any station whose `ConnectorState.LastMessageAt` is older than `ChargerWatcher:InactivityThresholdSeconds` (default 180 s) is treated as dead.
+- `Plug.IsOnline` is set to `false` in the database.
+- `WebSocket.Abort()` is called on the stale socket, which causes the Program.cs receive loop to exit and fire the standard `finally` cleanup — `Remove()` and `PushDisconnect()` — emitting `charger.status.changed { isConnected: false }` exactly once.
+
+The 60-second heartbeat interval means a 180-second threshold ≈ 3 missed heartbeats before the watcher acts.

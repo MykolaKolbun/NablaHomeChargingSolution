@@ -18,30 +18,7 @@ namespace OCPPServer.DataBase.DBModels
         public Enumerators.ChargePointStatus Status { get; set; }
             = Enumerators.ChargePointStatus.Available;
 
-        /// <summary>
-        /// OCPP transactionId assigned to the current active session.
-        /// Persisted in DB so it survives server restarts — needed for RemoteStopTransaction.
-        /// Null when no session is active.
-        /// </summary>
         public bool IsOnline { get; set; } = false;
-
-        /// <summary>
-        /// Live meter reading (Wh) updated by MeterValues messages during charging.
-        /// </summary>
-        public decimal? MeterValue { get; set; }
-
-        /// <summary>
-        /// UTC timestamp of the last MeterValues message — used to calculate delivery power.
-        /// </summary>
-        public DateTime? LastMeterValueAt { get; set; }
-
-        /// <summary>
-        /// State of Charge (%) reported by the vehicle via the charger.
-        /// Only populated by DC fast chargers that communicate with the vehicle BMS.
-        /// Null for AC chargers or when the charger does not report SoC.
-        /// </summary>
-        public decimal? StateOfCharge { get; set; }
-
 
         /// <summary>
         /// Get or set the timestamp of the last update received from the Connector.

@@ -1,213 +1,145 @@
-/**
- * ChargingStationConnections.cs — in-memory registry of connected chargers
- *
- * Manages two thread-safe dictionaries:
- *   _connections       — maps stationId (OcppId) → open WebSocket
- *   _activeTransactions — maps stationId → current OCPP transactionId
- *
- * Why in-memory and not in the database?
- *   WebSocket objects cannot be serialised — they represent an open TCP
- *   connection and only exist while the process is alive. The database stores
- *   persistent state (MeterStart, ActiveTransactionId); this class stores the
- *   live connection handle needed to send commands right now.
- *
- * Thread safety: Dictionary is not inherently thread-safe in C#. In the current
- * implementation a single WebSocket loop per charger means concurrent access is
- * rare, but if multiple threads ever access this class, consider ConcurrentDictionary.
- *
- * Note: _transactionCounter resets to 1 on process restart. This is fine because
- * the OCPP DB Connector.ActiveTransactionId (persisted) is the authoritative value
- * for stop commands after a restart.
- */
-
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 
-namespace OCPPServer
+namespace OCPPServer;
+
+/// <summary>
+/// In-memory registry of all currently connected charging stations.
+///
+/// A single <see cref="ConnectorState"/> per station replaces the previous design
+/// of five parallel ConcurrentDictionaries. The state object holds the WebSocket,
+/// negotiated OCPP protocol, live meter data, active transaction IDs, and pending
+/// command signals — everything that only exists while the station is connected.
+///
+/// Thread safety: ConcurrentDictionary protects Add/Remove/Get.
+/// Individual ConnectorState fields are written only from the per-station WebSocket
+/// receive loop (single-threaded) or from admin HTTP handlers (read-mostly).
+/// </summary>
+public static class ChargingStationConnections
 {
-    public static class ChargingStationConnections
+    private static readonly ConcurrentDictionary<string, ConnectorState> _states = new();
+
+    /// <summary>Monotonically increasing counter for assigning unique local transaction IDs.</summary>
+    private static int _transactionCounter = 0;
+
+    // ── Connection lifecycle ───────────────────────────────────────────────────
+
+    public static void Add(string stationId, WebSocket socket, string protocol)
+        => _states[stationId] = new ConnectorState { Socket = socket, Protocol = protocol };
+
+    public static void Remove(string stationId) => _states.TryRemove(stationId, out _);
+
+    /// <summary>Returns the full live state for a station, or null if not connected.</summary>
+    public static ConnectorState? Get(string stationId)
+        => _states.TryGetValue(stationId, out var s) ? s : null;
+
+    /// <summary>Convenience — returns the open WebSocket, or null if not connected.</summary>
+    public static WebSocket? GetSocket(string stationId) => Get(stationId)?.Socket;
+
+    /// <summary>Returns the negotiated OCPP sub-protocol, defaulting to "ocpp1.6" if unknown.</summary>
+    public static string GetProtocol(string stationId) => Get(stationId)?.Protocol ?? "ocpp1.6";
+
+    /// <summary>
+    /// Returns a snapshot of all currently connected stations.
+    /// Iterates the ConcurrentDictionary; safe to call from any thread.
+    /// Used by <see cref="ChargerWatcherService"/> to check inactivity.
+    /// </summary>
+    public static IReadOnlyList<(string StationId, ConnectorState State)> GetAll()
+        => _states.Select(kv => (kv.Key, kv.Value)).ToList();
+
+    // ── Transaction ID generation ──────────────────────────────────────────────
+
+    /// <summary>Generates a process-unique local transaction ID. Resets to 1 on restart.</summary>
+    public static int NextTransactionId() => Interlocked.Increment(ref _transactionCounter);
+
+    // ── OCPP 2.x transaction ID mapping ───────────────────────────────────────
+
+    /// <summary>
+    /// Assigns a local int ID for an OCPP 2.x string transaction and stores the mapping
+    /// in the station's ConnectorState. Returns the assigned local ID.
+    /// </summary>
+    public static int RegisterOcpp21Transaction(string stationId, string ocppTxId)
     {
-        /// <summary>
-        /// Live WebSocket connections keyed by normalised stationId (lowercase OcppId).
-        /// ConcurrentDictionary is used because multiple chargers can connect or
-        /// disconnect simultaneously on different async threads.
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, WebSocket> _connections = new();
-
-        /// <summary>Negotiated OCPP sub-protocol per connected station, e.g. "ocpp1.6" or "ocpp2.1".</summary>
-        private static readonly ConcurrentDictionary<string, string> _protocols = new();
-
-        /// <summary>
-        /// OCPP 2.1 uses string transactionIds. Maps stationId → (localIntId, ocppStringId)
-        /// so that RemoteStop commands (which carry our local int) can look up the OCPP string.
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, (int LocalId, string OcppTxId)> _ocpp21Tx = new();
-
-        /// <summary>
-        /// In-memory transactionId assigned at RemoteStartTransaction.
-        /// Used to match the correct transactionId in RemoteStopTransaction.
-        /// Cleared when StopTransaction is received from the charger.
-        /// ConcurrentDictionary avoids KeyNotFoundException on concurrent reconnects.
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, int> _activeTransactions = new();
-
-        /// <summary>
-        /// Pending StartTransaction signals — set by OcppCommandHandler after RemoteStartTransaction
-        /// is Accepted, completed by HandleStartTransaction when the charger confirms the session.
-        /// Keyed by stationId; value resolves with the assigned transactionId.
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, TaskCompletionSource<int>> _pendingStartTransactions = new();
-
-        public static TaskCompletionSource<int> RegisterPendingStartTransaction(string stationId)
+        var localId = Interlocked.Increment(ref _transactionCounter);
+        var state = Get(stationId);
+        if (state != null)
         {
-            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingStartTransactions[stationId] = tcs;
-            return tcs;
+            state.LocalTxId = localId;
+            state.OcppTxId  = ocppTxId;
         }
+        return localId;
+    }
 
-        public static void CompletePendingStartTransaction(string stationId, int transactionId)
-        {
-            if (_pendingStartTransactions.TryRemove(stationId, out var tcs))
-                tcs.TrySetResult(transactionId);
-        }
+    public static string? GetOcpp21TxId(string stationId)      => Get(stationId)?.OcppTxId;
+    public static int?    GetOcpp21LocalTxId(string stationId) => Get(stationId)?.LocalTxId;
 
-        public static void CancelPendingStartTransaction(string stationId)
-        {
-            if (_pendingStartTransactions.TryRemove(stationId, out var tcs))
-                tcs.TrySetCanceled();
-        }
+    public static void ClearOcpp21Transaction(string stationId)
+    {
+        var state = Get(stationId);
+        if (state != null) { state.LocalTxId = null; state.OcppTxId = null; }
+    }
 
-        // ── Pending StopTransaction signals ───────────────────────────────────────
-        private static readonly ConcurrentDictionary<string, TaskCompletionSource<int>> _pendingStopTransactions = new();
+    // ── Pending start/stop signals ─────────────────────────────────────────────
 
-        public static TaskCompletionSource<int> RegisterPendingStopTransaction(string stationId)
-        {
-            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _pendingStopTransactions[stationId] = tcs;
-            return tcs;
-        }
+    public static TaskCompletionSource<int> RegisterPendingStartTransaction(string stationId)
+    {
+        var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = Get(stationId);
+        if (state != null) state.PendingStart = tcs;
+        return tcs;
+    }
 
-        public static void CompletePendingStopTransaction(string stationId, int transactionId)
-        {
-            if (_pendingStopTransactions.TryRemove(stationId, out var tcs))
-                tcs.TrySetResult(transactionId);
-        }
+    public static void CompletePendingStartTransaction(string stationId, int txId)
+    {
+        var state = Get(stationId);
+        if (state?.PendingStart is { } tcs) { state.PendingStart = null; tcs.TrySetResult(txId); }
+    }
 
-        public static void CancelPendingStopTransaction(string stationId)
-        {
-            if (_pendingStopTransactions.TryRemove(stationId, out var tcs))
-                tcs.TrySetCanceled();
-        }
+    public static void CancelPendingStartTransaction(string stationId)
+    {
+        var state = Get(stationId);
+        if (state?.PendingStart is { } tcs) { state.PendingStart = null; tcs.TrySetCanceled(); }
+    }
 
-        /// <summary>
-        /// Meter reading (Wh) at session start, stored in-memory from StartTransaction.
-        /// Used to calculate session energy (MeterValue − MeterStart) during charging
-        /// and passed to EVChargingApi in StopTransaction so it can persist the delta.
-        /// Cleared when StopTransaction is received.
-        /// </summary>
-        private static readonly ConcurrentDictionary<string, decimal> _meterStarts = new();
+    public static TaskCompletionSource<int> RegisterPendingStopTransaction(string stationId)
+    {
+        var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = Get(stationId);
+        if (state != null) state.PendingStop = tcs;
+        return tcs;
+    }
 
-        /// <summary>
-        /// Monotonically increasing counter for generating unique transactionIds.
-        /// Interlocked.Increment is used instead of ++ to guarantee atomicity under
-        /// concurrent StartTransaction messages from multiple chargers.
-        /// </summary>
-        private static int _transactionCounter = 0;
+    public static void CompletePendingStopTransaction(string stationId, int txId)
+    {
+        var state = Get(stationId);
+        if (state?.PendingStop is { } tcs) { state.PendingStop = null; tcs.TrySetResult(txId); }
+    }
 
-        // ── Connection management ──────────────────────────────────────────────
+    public static void CancelPendingStopTransaction(string stationId)
+    {
+        var state = Get(stationId);
+        if (state?.PendingStop is { } tcs) { state.PendingStop = null; tcs.TrySetCanceled(); }
+    }
 
-        /// <summary>Registers an open WebSocket for a charger. Overwrites any previous connection.</summary>
-        public static void Add(string stationId, WebSocket socket)
-            => _connections[stationId] = socket;
+    // ── Pending authorize signal ───────────────────────────────────────────────
 
-        /// <summary>Removes the connection entry when the charger disconnects.</summary>
-        public static void Remove(string stationId)
-        {
-            _connections.TryRemove(stationId, out _);
-            _protocols.TryRemove(stationId, out _);
-        }
+    public static TaskCompletionSource<string> RegisterPendingAuthorize(string stationId)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = Get(stationId);
+        if (state != null) state.PendingAuthorize = tcs;
+        return tcs;
+    }
 
-        /// <summary>Returns the open WebSocket for a charger, or null if not connected.</summary>
-        public static WebSocket? Get(string stationId)
-            => _connections.TryGetValue(stationId, out var socket) ? socket : null;
+    public static void CompletePendingAuthorize(string stationId, string status)
+    {
+        var state = Get(stationId);
+        if (state?.PendingAuthorize is { } tcs) { state.PendingAuthorize = null; tcs.TrySetResult(status); }
+    }
 
-        // ── Protocol version management ────────────────────────────────────────
-
-        /// <summary>Stores the negotiated OCPP sub-protocol for a station after WebSocket handshake.</summary>
-        public static void SetProtocol(string stationId, string protocol)
-            => _protocols[stationId] = protocol;
-
-        /// <summary>Returns the negotiated protocol, defaulting to "ocpp1.6" if unknown.</summary>
-        public static string GetProtocol(string stationId)
-            => _protocols.TryGetValue(stationId, out var p) ? p : "ocpp1.6";
-
-        // ── OCPP 2.1 transaction ID mapping ───────────────────────────────────
-
-        /// <summary>
-        /// Assigns a local int transactionId and maps it to the OCPP 2.1 string transactionId.
-        /// Called when TransactionEvent(Started) is received from a 2.1 charger.
-        /// </summary>
-        public static int RegisterOcpp21Transaction(string stationId, string ocppTxId)
-        {
-            var localId = Interlocked.Increment(ref _transactionCounter);
-            _ocpp21Tx[stationId] = (localId, ocppTxId);
-            return localId;
-        }
-
-        /// <summary>Returns the OCPP 2.x string transactionId for the active session, or null.</summary>
-        public static string? GetOcpp21TxId(string stationId)
-            => _ocpp21Tx.TryGetValue(stationId, out var v) ? v.OcppTxId : null;
-
-        /// <summary>Returns the local int transactionId mapped from the OCPP 2.x string, or null.</summary>
-        public static int? GetOcpp21LocalTxId(string stationId)
-            => _ocpp21Tx.TryGetValue(stationId, out var v) ? v.LocalId : (int?)null;
-
-        /// <summary>Removes the OCPP 2.x transaction mapping when the session ends.</summary>
-        public static void ClearOcpp21Transaction(string stationId)
-            => _ocpp21Tx.TryRemove(stationId, out _);
-
-        // ── Transaction management ─────────────────────────────────────────────
-        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
-        /// <summary>
-        /// Assigns and stores a new transactionId for a charger.
-        /// Called when sending RemoteStartTransaction so we can include the same
-        /// id in RemoteStopTransaction later.
-        /// </summary>
-        public static int AssignTransaction(string stationId)
-        {
-            // Interlocked.Increment is atomic — safe when multiple chargers send
-            // StartTransaction simultaneously on different async threads.
-            var id = Interlocked.Increment(ref _transactionCounter);
-            _activeTransactions[stationId] = id;
-            return id;
-        }
-
-
-        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
-        /// <summary>Returns the current transactionId for a charger, or null if none active.</summary>
-        public static int? GetTransaction(string stationId)
-            => _activeTransactions.TryGetValue(stationId, out var id) ? id : null;
-
-
-        //TODO: Not in use. Remove after confirming RemoteStartTransaction and RemoteStopTransaction work without it. The OCPP DB Connector.ActiveTransactionId is the authoritative value for stop commands after a restart, so this in-memory store may be redundant.
-        /// <summary>Removes the transactionId when StopTransaction is received from the charger.</summary>
-        public static void ClearTransaction(string stationId)
-            => _activeTransactions.TryRemove(stationId, out _);
-
-        // ── MeterStart management ──────────────────────────────────────────────
-        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
-        /// <summary>Stores the meter reading (Wh) at session start. Called from HandleStartTransaction.</summary>
-        public static void SetMeterStart(string stationId, decimal valueWh)
-            => _meterStarts[stationId] = valueWh;
-
-        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
-        /// <summary>Returns the stored MeterStart (Wh) for a charger, or null if not set.</summary>
-        public static decimal? GetMeterStart(string stationId)
-            => _meterStarts.TryGetValue(stationId, out var v) ? v : null;
-
-        //TODO: Not in use. Remove after confirming StartTransaction and StopTransaction work without it. The OCPP DB Connector can persist the MeterStart delta without this in-memory store, so it may be redundant.
-        /// <summary>Removes the MeterStart entry when StopTransaction is received.</summary>
-        public static void ClearMeterStart(string stationId)
-            => _meterStarts.TryRemove(stationId, out _);
+    public static void CancelPendingAuthorize(string stationId)
+    {
+        var state = Get(stationId);
+        if (state?.PendingAuthorize is { } tcs) { state.PendingAuthorize = null; tcs.TrySetCanceled(); }
     }
 }

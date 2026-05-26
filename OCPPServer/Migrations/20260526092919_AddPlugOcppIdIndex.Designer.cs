@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using OCPPServer.Data;
@@ -11,9 +12,11 @@ using OCPPServer.Data;
 namespace OCPPServer.Migrations
 {
     [DbContext(typeof(ChargingDBContext))]
-    partial class ChargingDBContextModelSnapshot : ModelSnapshot
+    [Migration("20260526092919_AddPlugOcppIdIndex")]
+    partial class AddPlugOcppIdIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

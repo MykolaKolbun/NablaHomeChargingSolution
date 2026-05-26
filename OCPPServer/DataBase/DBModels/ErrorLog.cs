@@ -1,0 +1,55 @@
+using System.ComponentModel.DataAnnotations;
+
+namespace OCPPServer.DataBase.DBModels;
+
+/// <summary>
+/// Persisted trace entry — written by <see cref="OCPPServer.Tracing.TracingService"/>
+/// when the event level is at or above <c>Tracing:MinPersistLevel</c>.
+///
+/// OCPPServer adaptation of the EVChargingApi ErrorLog pattern:
+///   <c>ChargePointId</c> (string) replaces the user FK — chargers, not users, are
+///   the relevant context here.
+/// </summary>
+public class ErrorLog
+{
+    [Key]
+    public int Id { get; set; }
+
+    /// <summary>OcppId of the charger this event relates to. Null for infrastructure events
+    /// (RabbitMQ connection, server startup, watcher scan failures).</summary>
+    [MaxLength(100)]
+    public string? ChargePointId { get; set; }
+
+    /// <summary>Local transaction ID (ConnectorState.LocalTxId) when the event occurs inside
+    /// an active session. Null outside a transaction.</summary>
+    public int? SessionId { get; set; }
+
+    /// <summary>UTC timestamp when the event occurred.</summary>
+    public DateTime OccurredAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>Severity level.</summary>
+    [Required]
+    public ErrorLogLevel Level { get; set; }
+
+    /// <summary>Short stable identifier for the originating component (e.g. "Authorize", "Watcher").</summary>
+    [Required, MaxLength(100)]
+    public string Source { get; set; } = string.Empty;
+
+    /// <summary>Human-readable event description. For Exception entries includes stack trace.</summary>
+    [Required]
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>Set to true by an administrator once the issue has been investigated.</summary>
+    public bool IsSolved { get; set; } = false;
+
+    /// <summary>UTC timestamp when the issue was marked as solved.</summary>
+    public DateTime? SolvedAt { get; set; }
+}
+
+public enum ErrorLogLevel
+{
+    Info     = 0,
+    Warning  = 1,
+    Error    = 2,
+    Critical = 3,
+}
