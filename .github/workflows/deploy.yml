@@ -53,5 +53,5 @@ jobs:
           ssh ${{ secrets.PI_USER }}@${{ secrets.PI_HOST }} "
             cd ~/EVChargingApi &&
             docker compose pull ocpp &&
-            docker compose up -d ocpp
+            docker compose up -d --force-recreate ocpp
           "
