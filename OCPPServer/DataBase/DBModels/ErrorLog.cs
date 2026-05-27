@@ -51,8 +51,9 @@ public class ErrorLog
 
 public enum ErrorLogLevel
 {
-    Info     = 0,
-    Warning  = 1,
-    Error    = 2,
-    Critical = 3,
+    Verbose  = -1,  // All in/outgoing messages and responses — very high volume
+    Info     =  0,  // Normal lifecycle events
+    Warning  =  1,  // Unexpected but recoverable
+    Error    =  2,  // Operation-impacting problem
+    Critical =  3,  // Unhandled exception — always persisted
 }

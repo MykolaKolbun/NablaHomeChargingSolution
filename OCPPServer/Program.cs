@@ -49,6 +49,7 @@ var builder = WebApplication.CreateBuilder(args);
     var minLevel = builder.Configuration["Tracing:MinPersistLevel"] ?? "Warning";
     var logLevel = minLevel.ToLowerInvariant() switch
     {
+        "verbose"  => LogLevel.Trace,
         "info"     => LogLevel.Information,
         "error"    => LogLevel.Error,
         "critical" => LogLevel.Critical,

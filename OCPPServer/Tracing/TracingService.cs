@@ -55,6 +55,14 @@ public sealed class TracingService : ITracingService
             TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, _tz),
             DateTimeKind.Unspecified);
 
+    public void Verbose(string source, string message, string? chargePointId = null, int? sessionId = null)
+    {
+        OcppTrace.Msg(source, message);
+        _logger.LogTrace("[{Source}] {Message}", source, message);
+        if (_minPersistLevel <= ErrorLogLevel.Verbose)
+            _ = PersistAsync(ErrorLogLevel.Verbose, source, message, chargePointId, sessionId);
+    }
+
     public void Info(string source, string message, string? chargePointId = null, int? sessionId = null)
     {
         OcppTrace.Msg(source, message);

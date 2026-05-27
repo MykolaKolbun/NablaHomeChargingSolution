@@ -13,6 +13,13 @@ namespace OCPPServer.Tracing;
 /// </summary>
 public interface ITracingService
 {
+    /// <summary>
+    /// Raw in/outgoing message or request/response body.
+    /// Persisted only when <c>MinPersistLevel = Verbose</c>. Very high volume — keep disabled
+    /// in production unless actively diagnosing a protocol issue.
+    /// </summary>
+    void Verbose(string source, string message, string? chargePointId = null, int? sessionId = null);
+
     /// <summary>Normal lifecycle event (charger connected, session started, etc.).</summary>
     void Info(string source, string message, string? chargePointId = null, int? sessionId = null);
 
