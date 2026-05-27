@@ -52,6 +52,6 @@ jobs:
           EOF
           ssh ${{ secrets.PI_USER }}@${{ secrets.PI_HOST }} "
             cd ~/EVChargingApi &&
-            docker compose pull &&
-            docker compose up -d
+            docker compose pull ocpp &&
+            docker compose up -d ocpp
           "
