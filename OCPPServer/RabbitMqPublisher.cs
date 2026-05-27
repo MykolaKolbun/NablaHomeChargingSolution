@@ -18,6 +18,7 @@
 
 using System.Text;
 using System.Text.Json;
+using OCPPServer.Tracing;
 using RabbitMQ.Client;
 
 namespace OCPPServer;
@@ -27,8 +28,9 @@ public static class RabbitMqPublisher
     internal static IConnection? SharedConnection => _connection;
     private const string Exchange = "ocpp.events";
 
-    private static IConnection? _connection;
-    private static IChannel?    _channel;
+    private static IConnection?     _connection;
+    private static IChannel?        _channel;
+    private static ITracingService? _tracer;
 
     // ── Startup ────────────────────────────────────────────────────────────────
 
@@ -37,10 +39,12 @@ public static class RabbitMqPublisher
     /// Called once from Program.cs after database migrations.
     /// Failures are logged but non-fatal — the server runs without event publishing.
     /// </summary>
-    public static async Task ConfigureAsync(string host, string username, string password)
+    public static async Task ConfigureAsync(string host, string username, string password,
+        ITracingService tracer)
     {
         // Retry until RabbitMQ is ready — mirrors the retry loop in EVChargingApi's
         // RabbitMqConsumerService so startup ordering never causes a silent failure.
+        _tracer = tracer;
         while (true)
         {
             try
@@ -62,7 +66,7 @@ public static class RabbitMqPublisher
                     durable:    true,
                     autoDelete: false);
 
-                OcppTrace.Msg("RMQ", $"Connected to '{host}', exchange '{Exchange}' ready.");
+                _tracer.Info("RMQ", $"Connected to '{host}', exchange '{Exchange}' ready.");
                 return;
             }
             catch (Exception ex)
@@ -93,7 +97,7 @@ public static class RabbitMqPublisher
                 basicProperties: props,
                 body:            body);
 
-            OcppTrace.Msg("RMQ", $"[→] {routingKey}");
+            _tracer?.Verbose("RMQ", $"[→] {routingKey}");
         }
         catch (Exception ex)
         {

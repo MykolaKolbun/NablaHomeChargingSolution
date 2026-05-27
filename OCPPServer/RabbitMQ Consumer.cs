@@ -62,6 +62,7 @@ namespace OCPPServer
                 try
                 {
                     var json = Encoding.UTF8.GetString(ea.Body.ToArray());
+                    _tracer.Verbose("RMQ", $"[←] {ea.RoutingKey}: {json}");
                     await handler.HandleAsync(ea.RoutingKey, json, stoppingToken);
                     await channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
                 }

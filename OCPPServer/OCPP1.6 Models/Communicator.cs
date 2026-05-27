@@ -91,7 +91,7 @@ namespace OCPPServer.OCPP1._6_Models
                 var typeLabel = messageType == OcppMessageType.CALLRESULT ? "CALLRESULT" : "CALLERROR";
                 if (_pendingRequests.TryRemove(messageId, out var tcs))
                 {
-                    OcppTrace.Msg("OCPP", $"[← {typeLabel}] {connectorId} msgId={messageId} matched");
+                    _tracer.Verbose("OCPP", $"[← {typeLabel}] {connectorId} msgId={messageId} matched", chargePointId: connectorId);
                     var payload = messageType == OcppMessageType.CALLRESULT
                         ? (JObject)message[2]
                         : new JObject
@@ -103,7 +103,7 @@ namespace OCPPServer.OCPP1._6_Models
                 }
                 else
                 {
-                    OcppTrace.Msg("OCPP", $"[← {typeLabel}] {connectorId} msgId={messageId} — no matching pending request (timed out?)");
+                    _tracer.Warning("OCPP", $"[← {typeLabel}] {connectorId} msgId={messageId} — no matching pending request (timed out?)", chargePointId: connectorId);
                 }
                 return;
             }
@@ -116,7 +116,7 @@ namespace OCPPServer.OCPP1._6_Models
 
             string action       = message[2].Value<string>();
             JObject payloadCall = (JObject)message[3];
-            OcppTrace.Msg("OCPP", $"[← CALL] {connectorId}: action={action} payload={payloadCall}");
+            _tracer.Verbose("OCPP", $"[← CALL] {connectorId}: action={action} payload={payloadCall}", chargePointId: connectorId);
 
             // Wrap in try/catch so a handler exception never crashes the WebSocket connection
             try
@@ -510,7 +510,7 @@ namespace OCPPServer.OCPP1._6_Models
                 return new JObject { ["status"] = "Rejected" };
             }
 
-            OcppTrace.Msg("OCPP", $"[→ OUT] {stationId}: sending RemoteStopTransaction transactionId={transactionId}");
+            _tracer.Verbose("OCPP", $"[→ OUT] {stationId}: sending RemoteStopTransaction transactionId={transactionId}", chargePointId: stationId);
 
             var payload = new JObject
             {
@@ -592,7 +592,7 @@ namespace OCPPServer.OCPP1._6_Models
             var json  = message.ToString(Formatting.None);
             var bytes = Encoding.UTF8.GetBytes(json);
 
-            OcppTrace.Msg("OCPP", $"[→ OUT] {json}");
+            _tracer.Verbose("OCPP", $"[→ OUT] {json}");
 
             await socket.SendAsync(
                 bytes,

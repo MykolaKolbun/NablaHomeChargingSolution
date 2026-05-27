@@ -133,6 +133,7 @@ OcppTrace.Msg("SYS", $"OCPPServer starting — trace level {app.Configuration["T
 await RabbitMqPublisher.ConfigureAsync(
     host:     app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
     username: app.Configuration["RabbitMQ:Username"] ?? "guest",
+    tracer:   app.Services.GetRequiredService<ITracingService>(),
     password: app.Configuration["RabbitMQ:Password"] ?? "guest");
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
@@ -143,7 +144,8 @@ app.UseWebSockets();   // must be before MapXxx so WebSocket upgrades are handle
 // Each charger connects to /ws/{its-stationId} and stays connected indefinitely.
 // Negotiates OCPP sub-protocol at handshake; priority: ocpp2.1 > ocpp2.0.1 > ocpp2.0 > ocpp1.6.
 
-app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServiceScopeFactory scopeFactory, ICommunicator communicator) =>
+app.Map("/ws/{stationId}", async (HttpContext context, string stationId,
+    IServiceScopeFactory scopeFactory, ICommunicator communicator, ITracingService tracer) =>
 {
     stationId = stationId.ToLowerInvariant();
 
@@ -156,7 +158,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
     // Negotiate OCPP sub-protocol — pick the highest version both sides support.
     // Priority: ocpp2.1 > ocpp2.0.1 > ocpp1.6 > ocpp1.5
     var protocolHeader = context.Request.Headers["Sec-WebSocket-Protocol"].ToString();
-    OcppTrace.Msg("WS", $"{stationId} offered protocols: {protocolHeader}");
+    tracer.Verbose("WS", $"{stationId} offered protocols: {protocolHeader}", chargePointId: stationId);
 
     string selectedProtocol = "ocpp1.6";  // default if charger sends nothing
 
@@ -174,7 +176,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
 
     ChargingStationConnections.Add(stationId, webSocket, selectedProtocol);
 
-    OcppTrace.Msg("WS", $"Station {stationId} connected — protocol: {selectedProtocol}");
+    tracer.Info("WS", $"Station {stationId} connected — protocol: {selectedProtocol}", chargePointId: stationId);
 
     var buffer = new byte[1024 * 16];
 
@@ -196,7 +198,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
             if (result.MessageType == WebSocketMessageType.Text)
             {
                 var json = Encoding.UTF8.GetString(ms.ToArray());
-                OcppTrace.Msg("OCPP", $"[← IN ] {stationId}: {json}");
+                tracer.Verbose("OCPP", $"[← IN ] {stationId}: {json}", chargePointId: stationId);
 
                 // Stamp every incoming message so ChargerWatcherService can detect silence.
                 var connState = ChargingStationConnections.Get(stationId);
@@ -213,7 +215,7 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId, IServic
     finally
     {
         ChargingStationConnections.Remove(stationId);
-        OcppTrace.Msg("WS", $"Station {stationId} disconnected.");
+        tracer.Info("WS", $"Station {stationId} disconnected.", chargePointId: stationId);
         communicator.PushDisconnect(stationId);
     }
 });

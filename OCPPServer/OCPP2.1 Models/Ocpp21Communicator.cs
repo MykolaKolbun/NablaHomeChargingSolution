@@ -67,7 +67,7 @@ public sealed class Ocpp21Communicator
             }
             else
             {
-                OcppTrace.Msg("OCPP21", $"[← {messageType}] {stationId} msgId={messageId} — no matching pending request");
+                _tracer.Warning("OCPP21", $"[← {messageType}] {stationId} msgId={messageId} — no matching pending request", chargePointId: stationId);
             }
             return;
         }
@@ -77,7 +77,7 @@ public sealed class Ocpp21Communicator
         {
             var action6  = message[2].Value<string>() ?? string.Empty;
             var payload6 = (JObject)message[3];
-            OcppTrace.Msg("OCPP21", $"[← SEND] {stationId}: action={action6}");
+            _tracer.Verbose("OCPP21", $"[← SEND] {stationId}: action={action6}", chargePointId: stationId);
             await HandleCallOrSend(socket, stationId, action6, messageId, payload6, db, requiresResponse: false);
             return;
         }
@@ -90,7 +90,7 @@ public sealed class Ocpp21Communicator
 
         var actionName = message[2].Value<string>() ?? string.Empty;
         var callPayload = (JObject)message[3];
-        OcppTrace.Msg("OCPP21", $"[← CALL] {stationId}: action={actionName}");
+        _tracer.Verbose("OCPP21", $"[← CALL] {stationId}: action={actionName}", chargePointId: stationId);
 
         await HandleCallOrSend(socket, stationId, actionName, messageId, callPayload, db, requiresResponse: true);
     }
@@ -128,7 +128,7 @@ public sealed class Ocpp21Communicator
                     break;
 
                 default:
-                    OcppTrace.Msg("OCPP21", $"[WARN] {stationId}: unhandled action '{action}'");
+                    _tracer.Warning("OCPP21", $"[WARN] {stationId}: unhandled action '{action}'", chargePointId: stationId);
                     if (requiresResponse)
                         await SendCallResult(socket, messageId, new JObject());
                     break;
@@ -616,7 +616,7 @@ public sealed class Ocpp21Communicator
     {
         var json  = message.ToString(Formatting.None);
         var bytes = Encoding.UTF8.GetBytes(json);
-        OcppTrace.Msg("OCPP21", $"[→ OUT] {json}");
+        _tracer.Verbose("OCPP21", $"[→ OUT] {json}");
         await socket.SendAsync(bytes, WebSocketMessageType.Text, true, CancellationToken.None);
     }
 
