@@ -42,6 +42,23 @@ using static OCPP_RD.OCPP1._6_Models.MeterValuesRequest;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ── Tracing log level — single source of truth ────────────────────────────────
+// Tracing:MinPersistLevel drives BOTH the ILogger threshold AND DB persistence.
+// Do not add a Logging:LogLevel:Default key to appsettings.json — it would shadow this.
+{
+    var minLevel = builder.Configuration["Tracing:MinPersistLevel"] ?? "Warning";
+    var logLevel = minLevel.ToLowerInvariant() switch
+    {
+        "info"     => LogLevel.Information,
+        "error"    => LogLevel.Error,
+        "critical" => LogLevel.Critical,
+        _          => LogLevel.Warning,   // "warning" or unknown
+    };
+    builder.Logging.SetMinimumLevel(logLevel);
+    builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
+    builder.Logging.AddFilter("System",    LogLevel.Warning);
+}
+
 // ── Swagger (development/admin UI) ─────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -72,8 +89,8 @@ builder.Services.AddSingleton<ICommunicator, OcppRouter>(); // version dispatche
 // ── Tracing ────────────────────────────────────────────────────────────────────
 // Singleton: writes to OcppTrace file, ILogger (stdout), and ErrorLogs DB table.
 // MinPersistLevel controls which levels reach the DB (default: Warning and above).
+// ErrorLog cleanup is handled centrally by pg_cron (EVChargingApi/cron/init-pgcron.sql).
 builder.Services.AddSingleton<ITracingService, TracingService>();
-builder.Services.AddHostedService<ErrorLogCleanupService>();
 
 // Shared TimeZoneInfo for local-time writes (OccurredAt / SolvedAt in ErrorLogs).
 builder.Services.AddSingleton(sp =>
