@@ -178,6 +178,11 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId,
 
     tracer.Info("WS", $"Station {stationId} connected — protocol: {selectedProtocol}", chargePointId: stationId);
 
+    // Publish a reconnect event so EVChargingApi exits the Offline state immediately.
+    // connectorId=0 clears all connectors. If the charger sends StatusNotification
+    // right after (as most do), that will overwrite this with the real status.
+    _ = RabbitMqPublisher.PublishStatusChangedAsync(stationId, "Available", connectorId: 0, isConnected: true);
+
     var buffer = new byte[1024 * 16];
 
     try
