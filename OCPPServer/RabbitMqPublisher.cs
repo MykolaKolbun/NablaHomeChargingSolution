@@ -163,10 +163,13 @@ public static class RabbitMqPublisher
     /// <summary>
     /// Charger responded to RemoteStartTransaction. EVChargingApi uses this to
     /// confirm or reject the session start on the user's side.
+    /// trackingId is echoed back from the original command (PR-004) so the API can
+    /// correlate the response exactly; null when the command carried none.
     /// </summary>
-    public static Task PublishRemoteStartResponseAsync(string ocppId, string status, int connectorId, string idTag)
+    public static Task PublishRemoteStartResponseAsync(
+        string ocppId, string status, int connectorId, string idTag, Guid? trackingId = null)
         => PublishAsync("charger.remote.start.response",
-            new { ocppId, status, connectorId, idTag });
+            new { ocppId, status, connectorId, idTag, trackingId });
 
     /// <summary>
     /// Charger responded to RemoteStopTransaction.

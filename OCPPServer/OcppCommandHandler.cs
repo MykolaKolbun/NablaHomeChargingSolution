@@ -68,7 +68,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                                 await _db.SaveChangesAsync(ct);
                             }
 
-                            await RabbitMqPublisher.PublishRemoteStartResponseAsync(cmd.OcppId, "Accepted", cmd.ConnectorId, cmd.IdTag);
+                            await RabbitMqPublisher.PublishRemoteStartResponseAsync(cmd.OcppId, "Accepted", cmd.ConnectorId, cmd.IdTag, cmd.TrackingId);
                         }
                         catch (OperationCanceledException)
                         {
@@ -80,7 +80,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     }
                     else
                     {
-                        await RabbitMqPublisher.PublishRemoteStartResponseAsync(cmd.OcppId, status, cmd.ConnectorId, cmd.IdTag);
+                        await RabbitMqPublisher.PublishRemoteStartResponseAsync(cmd.OcppId, status, cmd.ConnectorId, cmd.IdTag, cmd.TrackingId);
                     }
                     break;
                 }
@@ -165,9 +165,19 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         break;
                     }
 
-                    var result = await _communicator.SendTriggerMessage(socket, requestedMessage, connectorId);
-                    var status = result["status"]?.Value<string>() ?? "Unknown";
-                    await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, requestedMessage);
+                    try
+                    {
+                        var result = await _communicator.SendTriggerMessage(socket, requestedMessage, connectorId);
+                        var status = result["status"]?.Value<string>() ?? "Unknown";
+                        await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, requestedMessage);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _tracer.Warning("RMQ-Consumer",
+                            $"[commandreq] {ocppId} — TriggerMessage({requestedMessage}) timed out (30 s)",
+                            chargePointId: ocppId);
+                        await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, "Timeout", requestedMessage);
+                    }
                     break;
                 }
 
@@ -192,9 +202,19 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         break;
                     }
 
-                    var result = await _communicator.SendStatusNotificationRequest(socket, connectorId);
-                    var status = result["status"]?.Value<string>() ?? "Unknown";
-                    await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, "StatusNotification");
+                    try
+                    {
+                        var result = await _communicator.SendStatusNotificationRequest(socket, connectorId);
+                        var status = result["status"]?.Value<string>() ?? "Unknown";
+                        await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, "StatusNotification");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _tracer.Warning("RMQ-Consumer",
+                            $"[statusreq] {ocppId} — TriggerMessage(StatusNotification) timed out (30 s)",
+                            chargePointId: ocppId);
+                        await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, "Timeout", "StatusNotification");
+                    }
                     break;
                 }
 
