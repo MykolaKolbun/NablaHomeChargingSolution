@@ -167,7 +167,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     try
                     {
-                        var result = await _communicator.SendTriggerMessage(socket, requestedMessage, connectorId);
+                        var result = await _communicator.SendTriggerMessage(socket, ocppId, requestedMessage, connectorId);
                         var status = result["status"]?.Value<string>() ?? "Unknown";
                         await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, requestedMessage);
                     }
@@ -204,7 +204,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     try
                     {
-                        var result = await _communicator.SendStatusNotificationRequest(socket, connectorId);
+                        var result = await _communicator.SendStatusNotificationRequest(socket, ocppId, connectorId);
                         var status = result["status"]?.Value<string>() ?? "Unknown";
                         await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, status, "StatusNotification");
                     }

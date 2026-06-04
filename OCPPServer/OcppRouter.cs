@@ -48,15 +48,27 @@ public sealed class OcppRouter : ICommunicator
             ? _ocpp21.SendStopCharging(socket, stationId, transactionId)
             : _ocpp16.SendStopCharging(socket, stationId, transactionId);
 
-    public Task<JObject> SendTriggerMessage(WebSocket socket, string requestedMessage, int? connectorId)
-        => _ocpp16.SendTriggerMessage(socket, requestedMessage, connectorId);
+    public Task<JObject> SendTriggerMessage(WebSocket socket, string stationId, string requestedMessage, int? connectorId)
+        => Is21(stationId)
+            ? _ocpp21.SendTriggerMessage(socket, stationId, requestedMessage, connectorId)
+            : _ocpp16.SendTriggerMessage(socket, stationId, requestedMessage, connectorId);
 
-    public Task<JObject> SendStatusNotificationRequest(WebSocket socket, int? connectorId)
-        => _ocpp16.SendStatusNotificationRequest(socket, connectorId);
+    public Task<JObject> SendStatusNotificationRequest(WebSocket socket, string stationId, int? connectorId)
+        => Is21(stationId)
+            ? _ocpp21.SendStatusNotificationRequest(socket, stationId, connectorId)
+            : _ocpp16.SendStatusNotificationRequest(socket, stationId, connectorId);
 
-    public Task<JObject> SendGetDiagnostics(WebSocket socket, GetDiagnosticsRequest request)
-        => _ocpp16.SendGetDiagnostics(socket, request);
+    public Task<JObject> SendGetDiagnostics(WebSocket socket, string stationId, GetDiagnosticsRequest request)
+        => Is21(stationId)
+            ? _ocpp21.SendGetDiagnostics(socket, stationId, request)
+            : _ocpp16.SendGetDiagnostics(socket, stationId, request);
 
     public Task<JObject> SendCallAndWaitAsync(WebSocket socket, string action, JObject payload, TimeSpan timeout)
-        => _ocpp16.SendCallAndWaitAsync(socket, action, payload, timeout);
+    {
+        // SendCallAndWaitAsync is only called directly from admin REST endpoints that already
+        // use the concrete communicators. The ICommunicator shim is never called in practice,
+        // but must satisfy the interface. Default to 1.6 (safe — callers should prefer the
+        // typed methods above which dispatch correctly).
+        return _ocpp16.SendCallAndWaitAsync(socket, action, payload, timeout);
+    }
 }

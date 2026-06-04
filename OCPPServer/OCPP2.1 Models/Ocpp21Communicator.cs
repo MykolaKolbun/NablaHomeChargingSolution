@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using OCPP_RD.OCPP1._6_Models;
 using OCPPServer.ChargerAdapters;
 using OCPPServer.ChargingStationInterface;
 using OCPPServer.Data;
@@ -456,8 +457,10 @@ public sealed class Ocpp21Communicator
         {
             var deltaWh    = (double)(readings.EnergyWh.Value - state.MeterValueWh.Value);
             var deltaHours = (now - state.LastMeterValueAt.Value).TotalHours;
-            if (deltaHours > 0 && deltaWh >= 0)
+            if (deltaHours > 0 && deltaWh > 0)
                 currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
+            else if (deltaWh == 0)
+                currentPowerKw = state.CurrentPowerKw;  // snapshot with no new energy — keep last known value
         }
 
         if (state != null)
@@ -529,8 +532,10 @@ public sealed class Ocpp21Communicator
         {
             var deltaWh    = (double)(readings.EnergyWh.Value - state.MeterValueWh.Value);
             var deltaHours = (now - state.LastMeterValueAt.Value).TotalHours;
-            if (deltaHours > 0 && deltaWh >= 0)
+            if (deltaHours > 0 && deltaWh > 0)
                 currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
+            else if (deltaWh == 0)
+                currentPowerKw = state.CurrentPowerKw;  // snapshot with no new energy — keep last known value
         }
 
         if (state != null)
@@ -590,6 +595,38 @@ public sealed class Ocpp21Communicator
             TimeSpan.FromSeconds(30));
     }
 
+    // ── Outbound CSMS → charger commands ─────────────────────────────────────────
+
+    /// <summary>
+    /// OCPP 2.x TriggerMessage — same action name as 1.6 but connectorId maps to evse.id.
+    /// </summary>
+    public Task<JObject> SendTriggerMessage(WebSocket socket, string stationId, string requestedMessage, int? connectorId)
+    {
+        var payload = new JObject { ["requestedMessage"] = requestedMessage };
+        if (connectorId.HasValue)
+            payload["evse"] = new JObject { ["id"] = connectorId.Value };
+        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>Requests a StatusNotification from an OCPP 2.x charger via TriggerMessage.</summary>
+    public Task<JObject> SendStatusNotificationRequest(WebSocket socket, string stationId, int? connectorId)
+    {
+        var payload = new JObject { ["requestedMessage"] = "StatusNotification" };
+        if (connectorId.HasValue)
+            payload["evse"] = new JObject { ["id"] = connectorId.Value };
+        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>
+    /// GetDiagnostics does not exist in OCPP 2.x (superseded by GetLog).
+    /// Returns Rejected immediately so the caller receives a clear signal.
+    /// </summary>
+    public Task<JObject> SendGetDiagnostics(WebSocket socket, string stationId, GetDiagnosticsRequest request)
+    {
+        _tracer.Warning("OCPP21", "SendGetDiagnostics is not supported on OCPP 2.x chargers — use GetLog");
+        return Task.FromResult(new JObject { ["status"] = "Rejected" });
+    }
+
     // ── Wire helpers ─────────────────────────────────────────────────────────────
 
     public async Task<JObject> SendCallAndWaitAsync(
@@ -602,7 +639,11 @@ public sealed class Ocpp21Communicator
         await SendAsync(socket, new JArray { 2, msgId, action, payload });
 
         using var cts = new CancellationTokenSource(timeout);
-        using (cts.Token.Register(() => tcs.TrySetCanceled()))
+        using (cts.Token.Register(() =>
+        {
+            _pendingRequests.TryRemove(msgId, out _);
+            tcs.TrySetCanceled();
+        }))
             return await tcs.Task;
     }
 

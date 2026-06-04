@@ -577,9 +577,13 @@ namespace OCPPServer.OCPP1._6_Models
             await SendAsync(socket, call);
 
             using var cts = new CancellationTokenSource(timeout);
-            using (cts.Token.Register(() => tcs.TrySetCanceled()))
+            using (cts.Token.Register(() =>
             {
-                return await tcs.Task; // ✅ async, non-blocking
+                _pendingRequests.TryRemove(messageId, out _);
+                tcs.TrySetCanceled();
+            }))
+            {
+                return await tcs.Task;
             }
         }
 
@@ -602,7 +606,7 @@ namespace OCPPServer.OCPP1._6_Models
             );
         }
 
-        public async Task<JObject> SendTriggerMessage(WebSocket socket, string requestedMessage, int? connectorId)
+        public async Task<JObject> SendTriggerMessage(WebSocket socket, string stationId, string requestedMessage, int? connectorId)
         {
             if (!Enum.TryParse<RequestedMessage>(requestedMessage, ignoreCase: true, out _))
                 throw new ArgumentException($"Unknown requestedMessage: '{requestedMessage}'");
@@ -614,7 +618,7 @@ namespace OCPPServer.OCPP1._6_Models
             return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
         }
 
-        public async Task<JObject> SendStatusNotificationRequest(WebSocket socket, int? connectorId)
+        public async Task<JObject> SendStatusNotificationRequest(WebSocket socket, string stationId, int? connectorId)
         {
             var payload = new JObject { ["requestedMessage"] = "StatusNotification" };
             if (connectorId.HasValue)
@@ -623,7 +627,7 @@ namespace OCPPServer.OCPP1._6_Models
             return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
         }
 
-        public async Task<JObject> SendGetDiagnostics(WebSocket socket, GetDiagnosticsRequest request)
+        public async Task<JObject> SendGetDiagnostics(WebSocket socket, string stationId, GetDiagnosticsRequest request)
         {
             var payload = new JObject { ["location"] = request.Location };
             if (request.Retries.HasValue)       payload["retries"]       = request.Retries.Value;

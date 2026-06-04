@@ -15,11 +15,11 @@ namespace OCPPServer.ChargingStationInterface
 
         Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId);
 
-        Task<JObject> SendTriggerMessage(WebSocket socket, string requestedMessage, int? connectorId);
+        Task<JObject> SendTriggerMessage(WebSocket socket, string stationId, string requestedMessage, int? connectorId);
 
-        Task<JObject> SendStatusNotificationRequest(WebSocket socket, int? connectorId);
+        Task<JObject> SendStatusNotificationRequest(WebSocket socket, string stationId, int? connectorId);
 
-        Task<JObject> SendGetDiagnostics(WebSocket socket, GetDiagnosticsRequest request);
+        Task<JObject> SendGetDiagnostics(WebSocket socket, string stationId, GetDiagnosticsRequest request);
 
         Task<JObject> SendCallAndWaitAsync(WebSocket socket, string action, JObject payload, TimeSpan timeout);
     }

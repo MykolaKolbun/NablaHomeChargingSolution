@@ -39,6 +39,15 @@ public static class ChargingStationConnections
     /// <summary>Returns the negotiated OCPP sub-protocol, defaulting to "ocpp1.6" if unknown.</summary>
     public static string GetProtocol(string stationId) => Get(stationId)?.Protocol ?? "ocpp1.6";
 
+    /// <summary>Reverse lookup — returns the negotiated protocol for a given socket instance,
+    /// defaulting to "ocpp1.6" if the socket is not found in the registry.</summary>
+    public static string GetProtocolBySocket(WebSocket socket)
+    {
+        foreach (var kv in _states)
+            if (ReferenceEquals(kv.Value.Socket, socket)) return kv.Value.Protocol;
+        return "ocpp1.6";
+    }
+
     /// <summary>
     /// Returns a snapshot of all currently connected stations.
     /// Iterates the ConcurrentDictionary; safe to call from any thread.

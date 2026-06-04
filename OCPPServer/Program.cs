@@ -289,7 +289,7 @@ app.MapPost("/api/admin/plugs/{ocppId}/diagnostics", async (string ocppId, GetDi
     if (socket is null || socket.State != WebSocketState.Open)
         return Results.Problem($"Charger '{ocppId}' is not connected", statusCode: 503);
 
-    var result = await communicator.SendGetDiagnostics(socket, new GetDiagnosticsRequest
+    var result = await communicator.SendGetDiagnostics(socket, ocppId, new GetDiagnosticsRequest
     {
         Location      = body.Location,
         StartTime     = body.StartTime,
