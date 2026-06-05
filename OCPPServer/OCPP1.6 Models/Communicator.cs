@@ -50,8 +50,15 @@ namespace OCPPServer.OCPP1._6_Models
     public class Communicator: ICommunicator
     {
         private readonly ITracingService _tracer;
+        private readonly TimeSpan        _commandTimeout;
+        private readonly TimeSpan        _authorizeTimeout;
 
-        public Communicator(ITracingService tracer) => _tracer = tracer;
+        public Communicator(ITracingService tracer, IConfiguration config)
+        {
+            _tracer           = tracer;
+            _commandTimeout   = TimeSpan.FromSeconds(config.GetValue("Ocpp:CommandTimeoutSeconds",   30));
+            _authorizeTimeout = TimeSpan.FromSeconds(config.GetValue("Ocpp:AuthorizeTimeoutSeconds", 10));
+        }
 
         /// <summary>
         /// Pending requests waiting for a response from the charging station.
@@ -194,6 +201,7 @@ namespace OCPPServer.OCPP1._6_Models
                     IsOnline         = true,
                     CreatedAt        = DateTime.UtcNow,
                     LastStatusUpdate = DateTime.UtcNow,
+                    LastHeartbeatAt  = DateTime.UtcNow,
                 });
             }
             else
@@ -215,6 +223,7 @@ namespace OCPPServer.OCPP1._6_Models
                 existingConnector.Status           = Enumerators.ChargePointStatus.Available;
                 existingConnector.IsOnline         = true;
                 existingConnector.LastStatusUpdate = DateTime.UtcNow;
+                existingConnector.LastHeartbeatAt  = DateTime.UtcNow;
             }
 
             await db.SaveChangesAsync();
@@ -245,7 +254,8 @@ namespace OCPPServer.OCPP1._6_Models
             if (plug != null)
             {
                 plug.LastStatusUpdate = DateTime.UtcNow;
-                plug.IsOnline = true; // assume online if heartbeat received
+                plug.LastHeartbeatAt  = DateTime.UtcNow;
+                plug.IsOnline         = true;
                 await db.SaveChangesAsync();
             }
 
@@ -329,7 +339,7 @@ namespace OCPPServer.OCPP1._6_Models
                 var tcs        = ChargingStationConnections.RegisterPendingAuthorize(stationId);
                 var authStatus = "Rejected"; // fail closed — backend silence = reject
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                using var cts = new CancellationTokenSource(_authorizeTimeout);
                 try
                 {
                     authStatus = await tcs.Task.WaitAsync(cts.Token);
@@ -498,7 +508,7 @@ namespace OCPPServer.OCPP1._6_Models
                 ["idTag"] = idTag
             };
 
-            return await SendCallAndWaitAsync(socket, "RemoteStartTransaction", payload, TimeSpan.FromSeconds(30));
+            return await SendCallAndWaitAsync(socket, "RemoteStartTransaction", payload, _commandTimeout);
         }
 
         public async Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId = null)
@@ -521,7 +531,7 @@ namespace OCPPServer.OCPP1._6_Models
                 socket,
                 "RemoteStopTransaction",
                 payload,
-                TimeSpan.FromSeconds(30));
+                _commandTimeout);
 
             return response;
         }
@@ -615,7 +625,7 @@ namespace OCPPServer.OCPP1._6_Models
             if (connectorId.HasValue)
                 payload["connectorId"] = connectorId.Value;
 
-            return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+            return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, _commandTimeout);
         }
 
         public async Task<JObject> SendStatusNotificationRequest(WebSocket socket, string stationId, int? connectorId)
@@ -624,7 +634,7 @@ namespace OCPPServer.OCPP1._6_Models
             if (connectorId.HasValue)
                 payload["connectorId"] = connectorId.Value;
 
-            return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+            return await SendCallAndWaitAsync(socket, "TriggerMessage", payload, _commandTimeout);
         }
 
         public async Task<JObject> SendGetDiagnostics(WebSocket socket, string stationId, GetDiagnosticsRequest request)
@@ -635,7 +645,7 @@ namespace OCPPServer.OCPP1._6_Models
             if (request.StartTime.HasValue)     payload["startTime"]     = request.StartTime.Value.ToString("o");
             if (request.StopTime.HasValue)      payload["stopTime"]      = request.StopTime.Value.ToString("o");
 
-            return await SendCallAndWaitAsync(socket, "GetDiagnostics", payload, TimeSpan.FromSeconds(30));
+            return await SendCallAndWaitAsync(socket, "GetDiagnostics", payload, _commandTimeout);
         }
 
         public async Task HandleDiagnosticsStatusNotification(WebSocket socket, string messageId, JObject payload, string stationId)

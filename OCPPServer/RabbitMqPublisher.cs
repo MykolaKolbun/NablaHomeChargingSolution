@@ -40,7 +40,7 @@ public static class RabbitMqPublisher
     /// Failures are logged but non-fatal — the server runs without event publishing.
     /// </summary>
     public static async Task ConfigureAsync(string host, string username, string password,
-        ITracingService tracer)
+        ITracingService tracer, int reconnectDelayMs = 5_000)
     {
         // Retry until RabbitMQ is ready — mirrors the retry loop in EVChargingApi's
         // RabbitMqConsumerService so startup ordering never causes a silent failure.
@@ -71,8 +71,8 @@ public static class RabbitMqPublisher
             }
             catch (Exception ex)
             {
-                OcppTrace.Error("RMQ", $"Not ready ({ex.Message}), retrying in 5 s…");
-                await Task.Delay(5_000);
+                OcppTrace.Error("RMQ", $"Not ready ({ex.Message}), retrying in {reconnectDelayMs} ms…");
+                await Task.Delay(reconnectDelayMs);
             }
         }
     }

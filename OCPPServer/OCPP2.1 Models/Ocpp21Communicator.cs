@@ -28,7 +28,15 @@ public sealed class Ocpp21Communicator
     private readonly ITracingService _tracer;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JObject>> _pendingRequests = new();
 
-    public Ocpp21Communicator(ITracingService tracer) => _tracer = tracer;
+    private readonly TimeSpan _commandTimeout;
+    private readonly TimeSpan _authorizeTimeout;
+
+    public Ocpp21Communicator(ITracingService tracer, IConfiguration config)
+    {
+        _tracer           = tracer;
+        _commandTimeout   = TimeSpan.FromSeconds(config.GetValue("Ocpp:CommandTimeoutSeconds",   30));
+        _authorizeTimeout = TimeSpan.FromSeconds(config.GetValue("Ocpp:AuthorizeTimeoutSeconds", 10));
+    }
 
     // ── ConnectorStatus 2.x → ChargePointStatus 1.6 best-effort mapping ──────────
     // Returns null for unrecognised values so the caller can log a warning and
@@ -205,7 +213,7 @@ public sealed class Ocpp21Communicator
             var tcs        = ChargingStationConnections.RegisterPendingAuthorize(stationId);
             var authStatus = "Rejected"; // fail closed
 
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var cts = new CancellationTokenSource(_authorizeTimeout);
             try
             {
                 authStatus = await tcs.Task.WaitAsync(cts.Token);
@@ -268,6 +276,7 @@ public sealed class Ocpp21Communicator
                 IsOnline         = true,
                 CreatedAt        = DateTime.UtcNow,
                 LastStatusUpdate = DateTime.UtcNow,
+                LastHeartbeatAt  = DateTime.UtcNow,
             });
         }
         else
@@ -282,6 +291,7 @@ public sealed class Ocpp21Communicator
             plug.Status           = Enumerators.ChargePointStatus.Available;
             plug.IsOnline         = true;
             plug.LastStatusUpdate = DateTime.UtcNow;
+            plug.LastHeartbeatAt  = DateTime.UtcNow;
         }
 
         await db.SaveChangesAsync();
@@ -312,6 +322,7 @@ public sealed class Ocpp21Communicator
         {
             plug.IsOnline         = true;
             plug.LastStatusUpdate = DateTime.UtcNow;
+            plug.LastHeartbeatAt  = DateTime.UtcNow;
             await db.SaveChangesAsync();
         }
         await SendCallResult(socket, messageId, new JObject
@@ -572,7 +583,7 @@ public sealed class Ocpp21Communicator
         if (evseId > 0)
             payload["evseId"] = evseId;
 
-        return await SendCallAndWaitAsync(socket, "RequestStartTransaction", payload, TimeSpan.FromSeconds(30));
+        return await SendCallAndWaitAsync(socket, "RequestStartTransaction", payload, _commandTimeout);
     }
 
     /// <summary>
@@ -592,7 +603,7 @@ public sealed class Ocpp21Communicator
 
         return await SendCallAndWaitAsync(socket, "RequestStopTransaction",
             new JObject { ["transactionId"] = ocppTxId },
-            TimeSpan.FromSeconds(30));
+            _commandTimeout);
     }
 
     // ── Outbound CSMS → charger commands ─────────────────────────────────────────
@@ -605,7 +616,7 @@ public sealed class Ocpp21Communicator
         var payload = new JObject { ["requestedMessage"] = requestedMessage };
         if (connectorId.HasValue)
             payload["evse"] = new JObject { ["id"] = connectorId.Value };
-        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, _commandTimeout);
     }
 
     /// <summary>Requests a StatusNotification from an OCPP 2.x charger via TriggerMessage.</summary>
@@ -614,7 +625,7 @@ public sealed class Ocpp21Communicator
         var payload = new JObject { ["requestedMessage"] = "StatusNotification" };
         if (connectorId.HasValue)
             payload["evse"] = new JObject { ["id"] = connectorId.Value };
-        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, TimeSpan.FromSeconds(30));
+        return SendCallAndWaitAsync(socket, "TriggerMessage", payload, _commandTimeout);
     }
 
     /// <summary>

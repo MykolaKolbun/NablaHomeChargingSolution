@@ -131,10 +131,11 @@ OcppTrace.Msg("SYS", $"OCPPServer starting — trace level {app.Configuration["T
 // Connected after migrations. RabbitMqConsumer waits on SharedConnection so
 // startup order is safe — the consumer won't try to consume before this returns.
 await RabbitMqPublisher.ConfigureAsync(
-    host:     app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
-    username: app.Configuration["RabbitMQ:Username"] ?? "guest",
-    tracer:   app.Services.GetRequiredService<ITracingService>(),
-    password: app.Configuration["RabbitMQ:Password"] ?? "guest");
+    host:             app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
+    username:         app.Configuration["RabbitMQ:Username"] ?? "guest",
+    password:         app.Configuration["RabbitMQ:Password"] ?? "guest",
+    tracer:           app.Services.GetRequiredService<ITracingService>(),
+    reconnectDelayMs: app.Configuration.GetValue("RabbitMQ:ReconnectDelayMs", 5_000));
 
 // ── Middleware ──────────────────────────────────────────────────────────────────
 app.UseCors();

@@ -26,6 +26,13 @@ namespace OCPPServer.DataBase.DBModels
         public DateTime? LastStatusUpdate { get; set; }
 
         /// <summary>
+        /// UTC timestamp of the most recent Heartbeat received from this charger.
+        /// Used by the watchdog to detect chargers that have gone silent.
+        /// Null until the first Heartbeat is processed.
+        /// </summary>
+        public DateTime? LastHeartbeatAt { get; set; }
+
+        /// <summary>
         /// Get or set the timestamp when the Connector record was created.
         /// </summary>
         [Required]

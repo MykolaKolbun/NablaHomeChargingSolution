@@ -14,12 +14,16 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
     private readonly ICommunicator     _communicator;
     private readonly ChargingDBContext _db;
     private readonly ITracingService   _tracer;
+    private readonly TimeSpan          _txConfirmTimeout;
 
-    public OcppCommandHandler(ICommunicator communicator, ChargingDBContext db, ITracingService tracer)
+    public OcppCommandHandler(ICommunicator communicator, ChargingDBContext db,
+        ITracingService tracer, IConfiguration config)
     {
-        _communicator = communicator;
-        _db           = db;
-        _tracer       = tracer;
+        _communicator     = communicator;
+        _db               = db;
+        _tracer           = tracer;
+        _txConfirmTimeout = TimeSpan.FromSeconds(
+            config.GetValue("Ocpp:TransactionConfirmTimeoutSeconds", 60));
     }
 
     public async Task HandleAsync(string routingKey, string json, CancellationToken ct)
@@ -55,7 +59,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         // before notifying EVChargingApi. Timeout: 60s (covers cable-plug-in delay).
                         var tcs = ChargingStationConnections.RegisterPendingStartTransaction(cmd.OcppId);
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+                        timeoutCts.CancelAfter(_txConfirmTimeout);
 
                         try
                         {
@@ -110,7 +114,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     {
                         var tcs = ChargingStationConnections.RegisterPendingStopTransaction(cmd.OcppId);
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                        timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+                        timeoutCts.CancelAfter(_txConfirmTimeout);
 
                         try
                         {

@@ -37,6 +37,7 @@ public sealed class ChargerWatcherService : BackgroundService
     private readonly ITracingService      _tracer;
     private readonly TimeSpan _checkInterval;
     private readonly TimeSpan _inactivityThreshold;
+    private readonly TimeSpan _heartbeatTimeout;
 
     public ChargerWatcherService(
         IServiceScopeFactory scopeFactory,
@@ -48,9 +49,11 @@ public sealed class ChargerWatcherService : BackgroundService
 
         var checkSec     = config.GetValue("ChargerWatcher:CheckIntervalSeconds",       30);
         var thresholdSec = config.GetValue("ChargerWatcher:InactivityThresholdSeconds", 180);
+        var heartbeatSec = config.GetValue("ChargerWatcher:HeartbeatTimeoutSeconds",    300);
 
         _checkInterval       = TimeSpan.FromSeconds(checkSec);
         _inactivityThreshold = TimeSpan.FromSeconds(thresholdSec);
+        _heartbeatTimeout    = TimeSpan.FromSeconds(heartbeatSec);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,6 +68,7 @@ public sealed class ChargerWatcherService : BackgroundService
             {
                 await Task.Delay(_checkInterval, stoppingToken);
                 await CheckAllAsync(stoppingToken);
+                await CheckStaleHeartbeatsAsync(stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -133,6 +137,47 @@ public sealed class ChargerWatcherService : BackgroundService
         catch (Exception ex)
         {
             _tracer.Exception("Watcher", ex, "DB save failed during watcher tick");
+        }
+    }
+
+    /// <summary>
+    /// Marks plugs as offline when LastHeartbeatAt has not been updated within
+    /// <c>ChargerWatcher:HeartbeatTimeoutSeconds</c>. This catches chargers that
+    /// are not currently connected (no in-memory socket) but whose DB record still
+    /// shows IsOnline = true — e.g. after a server restart. Does not rely on IsOnline
+    /// as input; reads LastHeartbeatAt directly.
+    /// </summary>
+    private async Task CheckStaleHeartbeatsAsync(CancellationToken ct)
+    {
+        var cutoff = DateTime.UtcNow - _heartbeatTimeout;
+
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
+
+        var stale = await db.Plugs
+            .Where(p => p.IsOnline &&
+                        p.LastHeartbeatAt != null &&
+                        p.LastHeartbeatAt < cutoff)
+            .ToListAsync(ct);
+
+        if (stale.Count == 0) return;
+
+        foreach (var plug in stale)
+        {
+            var silentFor = DateTime.UtcNow - plug.LastHeartbeatAt!.Value;
+            _tracer.Warning("Watcher",
+                $"{plug.OcppId}: no heartbeat for {silentFor.TotalSeconds:F0}s — marking offline",
+                chargePointId: plug.OcppId);
+            plug.IsOnline = false;
+        }
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _tracer.Exception("Watcher", ex, "DB save failed during heartbeat stale check");
         }
     }
 }

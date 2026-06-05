@@ -90,6 +90,9 @@ namespace OCPPServer.Migrations
                     b.Property<bool>("IsOnline")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("LastHeartbeatAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("LastStatusUpdate")
                         .HasColumnType("timestamp with time zone");
 
