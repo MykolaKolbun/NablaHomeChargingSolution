@@ -10,11 +10,12 @@ namespace OCPPServer.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.AddColumn<DateTime>(
-                name: "LastHeartbeatAt",
-                table: "Plugs",
-                type: "timestamp with time zone",
-                nullable: true);
+            // IF NOT EXISTS makes this idempotent — safe to run even if the column
+            // already exists (e.g. added manually or by a previous failed migration run).
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "Plugs" ADD COLUMN IF NOT EXISTS "LastHeartbeatAt" timestamp with time zone;
+                """);
         }
 
         /// <inheritdoc />
