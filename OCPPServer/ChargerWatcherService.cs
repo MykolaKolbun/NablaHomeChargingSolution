@@ -27,7 +27,8 @@ namespace OCPPServer;
 /// <code>
 ///   "ChargerWatcher": {
 ///     "CheckIntervalSeconds":       30,
-///     "InactivityThresholdSeconds": 180
+///     "InactivityThresholdSeconds": 180,
+///     "HeartbeatTimeoutSeconds":    300
 ///   }
 /// </code>
 /// </summary>
@@ -67,8 +68,13 @@ public sealed class ChargerWatcherService : BackgroundService
             try
             {
                 await Task.Delay(_checkInterval, stoppingToken);
-                await CheckAllAsync(stoppingToken);
-                await CheckStaleHeartbeatsAsync(stoppingToken);
+
+                // Fix 6: one DB scope shared across both checks per tick.
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
+
+                await CheckAllAsync(db, stoppingToken);
+                await CheckStaleHeartbeatsAsync(db, stoppingToken);
             }
             catch (OperationCanceledException)
             {
@@ -86,7 +92,7 @@ public sealed class ChargerWatcherService : BackgroundService
         _tracer.Info("Watcher", "ChargerWatcherService stopped.");
     }
 
-    private async Task CheckAllAsync(CancellationToken ct)
+    private async Task CheckAllAsync(ChargingDBContext db, CancellationToken ct)
     {
         var now  = DateTime.UtcNow;
         var all  = ChargingStationConnections.GetAll();
@@ -97,10 +103,6 @@ public sealed class ChargerWatcherService : BackgroundService
         OcppTrace.Dbg("Watcher", $"Scan: {all.Count} connected, {dead.Count} stale");  // debug-only: too frequent for DB
 
         if (dead.Count == 0) return;
-
-        // One DB scope per watcher tick (not per charger) to batch the writes.
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
 
         foreach (var (stationId, state) in dead)
         {
@@ -130,54 +132,89 @@ public sealed class ChargerWatcherService : BackgroundService
             }
         }
 
+        // Fix 3: filter OperationCanceledException so clean shutdown is not logged as an error.
         try
         {
             await db.SaveChangesAsync(ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _tracer.Exception("Watcher", ex, "DB save failed during watcher tick");
         }
     }
 
     /// <summary>
-    /// Marks plugs as offline when LastHeartbeatAt has not been updated within
-    /// <c>ChargerWatcher:HeartbeatTimeoutSeconds</c>. This catches chargers that
-    /// are not currently connected (no in-memory socket) but whose DB record still
-    /// shows IsOnline = true — e.g. after a server restart. Does not rely on IsOnline
-    /// as input; reads LastHeartbeatAt directly.
+    /// Marks disconnected plugs as offline when <c>LastHeartbeatAt</c> has not been
+    /// updated within <c>ChargerWatcher:HeartbeatTimeoutSeconds</c>.
+    ///
+    /// Only targets plugs with no live in-memory socket — chargers that are currently
+    /// connected are excluded regardless of their heartbeat cadence (Fix 2).
+    ///
+    /// Uses <c>ExecuteUpdateAsync</c> so the <c>WHERE LastHeartbeatAt &lt; cutoff</c>
+    /// condition is re-evaluated atomically at the DB: if a Heartbeat arrives between
+    /// the diagnostic SELECT and this UPDATE, that plug's <c>LastHeartbeatAt</c> will
+    /// be &gt;= cutoff and the UPDATE will skip it — no false-offline overwrite (Fix 1).
     /// </summary>
-    private async Task CheckStaleHeartbeatsAsync(CancellationToken ct)
+    private async Task CheckStaleHeartbeatsAsync(ChargingDBContext db, CancellationToken ct)
     {
         var cutoff = DateTime.UtcNow - _heartbeatTimeout;
 
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
+        // Fix 2: build the set of currently connected charger IDs so we can exclude
+        // live sockets from the stale-heartbeat check. A connected charger with a slow
+        // heartbeat interval (> HeartbeatTimeoutSeconds) must not be marked offline.
+        var connectedOcppIds = ChargingStationConnections.GetAll()
+            .Select(e => e.StationId)
+            .ToHashSet();
 
+        // Read the stale list for logging only — AsNoTracking because the actual
+        // update goes through ExecuteUpdateAsync, not SaveChanges.
+        //
+        // Two stale cases:
+        //   1. LastHeartbeatAt is set but expired — charger was alive, now silent.
+        //   2. LastHeartbeatAt is null AND CreatedAt > 1 h ago — old DB record that
+        //      never connected. Newly added stations get a 1-hour grace period so they
+        //      are not immediately flipped offline before their first connection.
+        var graceCutoff = DateTime.UtcNow.AddHours(-1);
         var stale = await db.Plugs
+            .AsNoTracking()
             .Where(p => p.IsOnline &&
-                        p.LastHeartbeatAt != null &&
-                        p.LastHeartbeatAt < cutoff)
+                        ((p.LastHeartbeatAt != null && p.LastHeartbeatAt < cutoff) ||
+                         (p.LastHeartbeatAt == null && p.CreatedAt < graceCutoff)))
+            .Select(p => new { p.OcppId, p.LastHeartbeatAt })
             .ToListAsync(ct);
+
+        // Exclude live sockets in memory (number of stale plugs is expected to be small).
+        stale = stale.Where(p => !connectedOcppIds.Contains(p.OcppId)).ToList();
 
         if (stale.Count == 0) return;
 
         foreach (var plug in stale)
         {
-            var silentFor = DateTime.UtcNow - plug.LastHeartbeatAt!.Value;
-            _tracer.Warning("Watcher",
-                $"{plug.OcppId}: no heartbeat for {silentFor.TotalSeconds:F0}s — marking offline",
-                chargePointId: plug.OcppId);
-            plug.IsOnline = false;
+            var msg = plug.LastHeartbeatAt.HasValue
+                ? $"{plug.OcppId}: no heartbeat for {(DateTime.UtcNow - plug.LastHeartbeatAt.Value).TotalSeconds:F0}s — marking offline"
+                : $"{plug.OcppId}: IsOnline=true but never sent a heartbeat — marking offline";
+            _tracer.Warning("Watcher", msg, chargePointId: plug.OcppId);
         }
 
+        // Fix 1: atomic UPDATE — re-checks LastHeartbeatAt < cutoff at the DB level.
+        // If a Heartbeat arrived between the SELECT above and this statement, that
+        // plug's LastHeartbeatAt is now >= cutoff → WHERE excludes it → no overwrite.
+        // Note: the warning log above was based on the pre-UPDATE snapshot and may
+        // rarely mention a plug that heartbeated in the race window; this is harmless.
+        var staleIds = stale.Select(p => p.OcppId).ToList();
+
+        // Fix 3: filter OperationCanceledException so clean shutdown is not logged as an error.
         try
         {
-            await db.SaveChangesAsync(ct);
+            await db.Plugs
+                .Where(p => staleIds.Contains(p.OcppId) &&
+                            ((p.LastHeartbeatAt != null && p.LastHeartbeatAt < cutoff) ||
+                             (p.LastHeartbeatAt == null && p.CreatedAt < graceCutoff)))
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.IsOnline, false), ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _tracer.Exception("Watcher", ex, "DB save failed during heartbeat stale check");
+            _tracer.Exception("Watcher", ex, "DB update failed during heartbeat stale check");
         }
     }
 }

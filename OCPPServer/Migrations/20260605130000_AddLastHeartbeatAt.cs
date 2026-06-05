@@ -21,9 +21,12 @@ namespace OCPPServer.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "LastHeartbeatAt",
-                table: "Plugs");
+            // IF EXISTS mirrors the IF NOT EXISTS in Up() — rollback is safe even
+            // if the column was never actually added by this migration.
+            migrationBuilder.Sql(
+                """
+                ALTER TABLE "Plugs" DROP COLUMN IF EXISTS "LastHeartbeatAt";
+                """);
         }
     }
 }

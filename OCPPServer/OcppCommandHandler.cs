@@ -15,6 +15,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
     private readonly ChargingDBContext _db;
     private readonly ITracingService   _tracer;
     private readonly TimeSpan          _txConfirmTimeout;
+    private readonly TimeSpan          _commandTimeout;
 
     public OcppCommandHandler(ICommunicator communicator, ChargingDBContext db,
         ITracingService tracer, IConfiguration config)
@@ -24,6 +25,8 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
         _tracer           = tracer;
         _txConfirmTimeout = TimeSpan.FromSeconds(
             config.GetValue("Ocpp:TransactionConfirmTimeoutSeconds", 60));
+        _commandTimeout   = TimeSpan.FromSeconds(
+            config.GetValue("Ocpp:CommandTimeoutSeconds", 30));
     }
 
     public async Task HandleAsync(string routingKey, string json, CancellationToken ct)
@@ -56,7 +59,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     if (status == "Accepted")
                     {
                         // Charger said it will try to start — wait for the actual StartTransaction.req
-                        // before notifying EVChargingApi. Timeout: 60s (covers cable-plug-in delay).
+                        // before notifying EVChargingApi. Timeout covers cable-plug-in delay.
                         var tcs = ChargingStationConnections.RegisterPendingStartTransaction(cmd.OcppId);
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         timeoutCts.CancelAfter(_txConfirmTimeout);
@@ -78,7 +81,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         {
                             ChargingStationConnections.CancelPendingStartTransaction(cmd.OcppId);
                             _tracer.Warning("RemoteStart",
-                                $"{cmd.OcppId} — StartTransaction not received within 60 s",
+                                $"{cmd.OcppId} — StartTransaction not received within {_txConfirmTimeout.TotalSeconds:F0}s",
                                 chargePointId: cmd.OcppId);
                         }
                     }
@@ -133,7 +136,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         {
                             ChargingStationConnections.CancelPendingStopTransaction(cmd.OcppId);
                             _tracer.Warning("RemoteStop",
-                                $"{cmd.OcppId} — StopTransaction not received within 60 s",
+                                $"{cmd.OcppId} — StopTransaction not received within {_txConfirmTimeout.TotalSeconds:F0}s",
                                 chargePointId: cmd.OcppId);
                             await RabbitMqPublisher.PublishRemoteStopResponseAsync(cmd.OcppId, "Timeout", cmd.TransactionId);
                         }
@@ -178,7 +181,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     catch (OperationCanceledException)
                     {
                         _tracer.Warning("RMQ-Consumer",
-                            $"[commandreq] {ocppId} — TriggerMessage({requestedMessage}) timed out (30 s)",
+                            $"[commandreq] {ocppId} — TriggerMessage({requestedMessage}) timed out ({_commandTimeout.TotalSeconds:F0}s)",
                             chargePointId: ocppId);
                         await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, "Timeout", requestedMessage);
                     }
@@ -215,7 +218,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     catch (OperationCanceledException)
                     {
                         _tracer.Warning("RMQ-Consumer",
-                            $"[statusreq] {ocppId} — TriggerMessage(StatusNotification) timed out (30 s)",
+                            $"[statusreq] {ocppId} — TriggerMessage(StatusNotification) timed out ({_commandTimeout.TotalSeconds:F0}s)",
                             chargePointId: ocppId);
                         await RabbitMqPublisher.PublishTriggerResponseAsync(ocppId, "Timeout", "StatusNotification");
                     }
