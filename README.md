@@ -156,7 +156,7 @@ Optional query parameters:
 | Parameter | Default | Notes |
 |---|---|---|
 | `chargePointId` | *(all)* | Filter to one charger |
-| `minLevel` | `Warning` | `Info` / `Warning` / `Error` / `Critical` |
+| `minLevel` | `Warning` | `Verbose` / `Info` / `Warning` / `Error` / `Critical` |
 | `limit` | `200` | Max rows returned |
 
 ```
