@@ -395,6 +395,15 @@ namespace OCPPServer.OCPP1._6_Models
                 OcppTrace.Dbg("OCPP", $"MeterStart={meterStartRaw.Value} Wh stored in-memory for {stationId}");
             }
 
+            // Persist MeterStartWh to DB so it survives an OCPP server restart.
+            // MeterValues handlers recover state.MeterStartWh from this column on restart.
+            var plugStart = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+            if (plugStart != null)
+            {
+                plugStart.MeterStartWh = meterStartRaw;
+                await db.SaveChangesAsync();
+            }
+
             await SendCallResult(socket, messageId, new JObject
             {
                 ["transactionId"] = transactionId,
@@ -434,6 +443,14 @@ namespace OCPPServer.OCPP1._6_Models
                 state.LocalTxId        = null;
             }
 
+            // Clear persisted MeterStartWh — session is over.
+            var plugStop = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+            if (plugStop != null)
+            {
+                plugStop.MeterStartWh = null;
+                await db.SaveChangesAsync();
+            }
+
             await SendCallResult(socket, messageId, new JObject
             {
                 ["idTagInfo"] = new JObject { ["status"] = "Accepted" }
@@ -469,6 +486,20 @@ namespace OCPPServer.OCPP1._6_Models
                     chargePointId: stationId);
                 await SendCallResult(socket, messageId, new JObject());
                 return;
+            }
+
+            // Restart recovery: if MeterStartWh was lost from in-memory state (OCPP server
+            // restart while a session was active), restore it from the persisted DB value so
+            // PublishMeterUpdatedAsync carries a valid baseline instead of null.
+            if (state != null && !state.MeterStartWh.HasValue)
+            {
+                var plugRecover = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+                if (plugRecover?.MeterStartWh.HasValue == true)
+                {
+                    state.MeterStartWh = plugRecover.MeterStartWh;
+                    OcppTrace.Dbg("OCPP",
+                        $"MeterStart recovered from DB after restart: {plugRecover.MeterStartWh} Wh for {stationId}");
+                }
             }
 
             var now = DateTime.UtcNow;

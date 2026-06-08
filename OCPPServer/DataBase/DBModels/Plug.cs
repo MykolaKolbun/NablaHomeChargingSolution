@@ -93,5 +93,14 @@ namespace OCPPServer.DataBase.DBModels
         /// Set at WebSocket handshake and persisted on first BootNotification.
         /// </summary>
         public string OcppVersion { get; set; } = "ocpp1.6";
+
+        /// <summary>
+        /// Meter reading (Wh) at the start of the current or most-recent session.
+        /// Written by HandleStartTransaction / HandleTxStarted so the value survives
+        /// an OCPP server restart.  Cleared on StopTransaction / HandleTxEnded.
+        /// On restart the MeterValues handler reads this column back into
+        /// ConnectorState.MeterStartWh so PublishMeterUpdated carries a valid baseline.
+        /// </summary>
+        public decimal? MeterStartWh { get; set; }
     }
 }

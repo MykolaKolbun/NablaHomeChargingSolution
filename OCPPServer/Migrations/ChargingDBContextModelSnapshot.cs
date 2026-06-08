@@ -99,6 +99,9 @@ namespace OCPPServer.Migrations
                     b.Property<int>("MaxPower")
                         .HasColumnType("integer");
 
+                    b.Property<decimal?>("MeterStartWh")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("OcppId")
                         .IsRequired()
                         .HasColumnType("text");

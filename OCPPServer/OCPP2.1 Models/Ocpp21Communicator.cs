@@ -438,6 +438,14 @@ public sealed class Ocpp21Communicator
             state.LastMeterValueAt = null;
         }
 
+        // Persist MeterStartWh to DB so it survives an OCPP server restart.
+        var plugStart21 = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+        if (plugStart21 != null)
+        {
+            plugStart21.MeterStartWh = meterStartWh;
+            await db.SaveChangesAsync();
+        }
+
         await SendCallResult(socket, messageId, new JObject
         {
             ["idTokenInfo"] = new JObject { ["status"] = "Accepted" }
@@ -459,6 +467,18 @@ public sealed class Ocpp21Communicator
         {
             await SendCallResult(socket, messageId, new JObject());
             return;
+        }
+
+        // Restart recovery: restore MeterStartWh from DB if lost from in-memory state.
+        if (state != null && !state.MeterStartWh.HasValue)
+        {
+            var plugRecover = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+            if (plugRecover?.MeterStartWh.HasValue == true)
+            {
+                state.MeterStartWh = plugRecover.MeterStartWh;
+                OcppTrace.Dbg("OCPP21",
+                    $"MeterStart recovered from DB after restart: {plugRecover.MeterStartWh} Wh for {stationId}");
+            }
         }
 
         var now = DateTime.UtcNow;
@@ -513,6 +533,14 @@ public sealed class Ocpp21Communicator
 
         ChargingStationConnections.ClearOcpp21Transaction(stationId);
 
+        // Clear persisted MeterStartWh — session is over.
+        var plugStop21 = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+        if (plugStop21 != null)
+        {
+            plugStop21.MeterStartWh = null;
+            await db.SaveChangesAsync();
+        }
+
         await SendCallResult(socket, messageId, new JObject());
 
         _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
@@ -534,6 +562,18 @@ public sealed class Ocpp21Communicator
         {
             await SendCallResult(socket, messageId, new JObject());
             return;
+        }
+
+        // Restart recovery: restore MeterStartWh from DB if lost from in-memory state.
+        if (state != null && !state.MeterStartWh.HasValue)
+        {
+            var plugRecover = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+            if (plugRecover?.MeterStartWh.HasValue == true)
+            {
+                state.MeterStartWh = plugRecover.MeterStartWh;
+                OcppTrace.Dbg("OCPP21",
+                    $"MeterStart recovered from DB after restart: {plugRecover.MeterStartWh} Wh for {stationId}");
+            }
         }
 
         var now = DateTime.UtcNow;
