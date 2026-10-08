@@ -56,10 +56,10 @@ Charger OCPP URL: `wss://home-ocpp.alternatiview.com.ua/ws/{chargePointId}`
 | `HOME_JWT_KEY` | Random, ≥ 32 chars — signs user JWTs. Changing it logs everyone out |
 | `HOME_ADMIN_KEY` | Random, ≥ 24 chars — header `X-Admin-Key` for `/api/admin/*` |
 
-Generate on Windows (PowerShell):
+Generate on Windows (works in Windows PowerShell 5.1 and PowerShell 7; 48 chars):
 
 ```powershell
-[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
+$b = New-Object byte[] 36; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
 ```
 
 > `HOME_DB_PASSWORD` / `HOME_RABBITMQ_PASSWORD` are applied only when the volumes are first
