@@ -136,7 +136,7 @@ Vout = Vref · (1 + Rf/Rin) − (Rf/Rin) · Vgpio
 
 CSMS — власний OCPP-шлюз домашнього рішення `EVOCPP` (окрема версія, див. [architecture.md](architecture.md)), протокол OCPP 1.6J по wss. Клієнт на ESP — бібліотека MicroOcpp 1.2.0. Версія некомерційна, тому MID-лічильник не потрібен.
 
-**Підключення (працює з 2026-10-07):** `wss://ocpp.alternatiview.com.ua/ws/30011` (поки комерційний сервер), станція `30011`, без авторизації, перевірка сертифіката сервера поки вимкнена (MicroOcpp без CA). **Ціль:** `wss://home-ocpp.alternatiview.com.ua/ws/30011` — перенести одразу після першого деплою EVOCPP (рішення D5: зарядка підключена лише до однієї системи). BootNotification `Accepted`, vendor `Home`, model `DIY-Proxy`. Після RESET станція сама повертається Online.
+**Підключення (з 2026-10-08):** `wss://home-ocpp.alternatiview.com.ua/ws/30011` (EVOCPP; до 2026-10-08 — комерційний `ocpp.alternatiview.com.ua`), станція `30011`, без авторизації, перевірка сертифіката сервера поки вимкнена (MicroOcpp без CA). **Ціль:** `wss://home-ocpp.alternatiview.com.ua/ws/30011` — перенести одразу після першого деплою EVOCPP (рішення D5: зарядка підключена лише до однієї системи). BootNotification `Accepted`, vendor `Home`, model `DIY-Proxy`. Після RESET станція сама повертається Online.
 
 **Налаштування Arduino IDE для ESP32-C6-Zero:** пакет esp32 by Espressif 3.x (`https://espressif.github.io/arduino-esp32/package_esp32_index.json`), плата ESP32C6 Dev Module, USB CDC On Boot: Enabled, Flash Size 8MB, Partition Scheme «8M with spiffs (3MB APP/1.5MB SPIFFS)» (або Minimal SPIFFS), Optimize for Debugging вимкнено. Бібліотеки: MicroOcpp (ZIP з GitHub matth-x/MicroOcpp, в Library Manager її немає), ArduinoJson **6.21.5** (не 7), WebSockets by Markus Sattler. Паролі Wi-Fi — у `secrets.h`. RGB-світлодіод на GPIO8 (`rgbLedWrite`).
 
@@ -345,7 +345,7 @@ BLE машини працює, але блок інфотейнменту (MCU) 
 
 - [x] ESP32-C6: перша прошивка, Wi-Fi (RSSI −47…−56 дБм біля ПК), SNTP. (2026-10-07)
 - [x] ESP → сервер по wss: BootNotification Accepted, станція 30011 Online, перепідключення після RESET. (2026-10-07)
-- [ ] Перехід на `wss://home-ocpp.alternatiview.com.ua/ws/30011` (EVOCPP): BootNotification Accepted. Скетч — `firmware/esp32/`.
+- [x] Перехід на `wss://home-ocpp.alternatiview.com.ua/ws/30011` (EVOCPP): BootNotification Accepted, StatusNotification Available, Heartbeat. Скетч — `firmware/esp32/`. (2026-10-08)
 - [ ] Віртуальне авто: RemoteStart → StartTransaction → MeterValues → Stop; енергія сесії в додатку = показ скетчу.
 - [ ] Мінімальний веб-інтерфейс на C6: налаштування в NVS, точка доступу `Nabla-30011`, форма Wi-Fi/OCPP, пароль. Перевірка: зміна URL сервера з браузера без перепрошивки, станція перепідключається.
 - [ ] Перевірити RSSI на місці встановлення зарядки.

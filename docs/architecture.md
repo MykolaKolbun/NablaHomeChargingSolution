@@ -26,7 +26,7 @@ EVHomeApp ──REST/SignalR──► EVHomeAPI ──RabbitMQ (/home)──► 
 
 1. ✅ EVOCPP imported; configurable RabbitMQ VirtualHost + CORS origins
 2. ✅ `deploy/docker-compose.yml` + `.github/workflows/evocpp.yml` — deployed to the Pi 2026-10-08, `wss://home-ocpp.alternatiview.com.ua` answers (WebSocket 101)
-3. Move DIY station `30011` to `home-ocpp.alternatiview.com.ua`; verify with the virtual car sketch (RemoteStart → MeterValues → Stop)
+3. ✅ (2026-10-08) Move DIY station `30011` to `home-ocpp.alternatiview.com.ua`; verify with the virtual car sketch (RemoteStart → MeterValues → Stop)
 4. EVOCPP: `SetChargingProfile` / `ClearChargingProfile` (current limit 6–16 A, TxDefault/Tx) — main feature of the DIY controller
 5. EVHomeAPI skeleton: auth (JWT), stations, station access, claim-by-code
 6. OCPP integration: event consumer, authorize (any idTag incl. `LOCAL` for owned stations), sessions without cost, start/stop, SignalR (incl. SoC from MeterValues)
