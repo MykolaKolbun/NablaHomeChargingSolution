@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/EVOCPP/">
+    <Project Path="EVOCPP/OCPPServer/OCPPServer.csproj" />
+  </Folder>
+  <Project Path="EVHomeAPI.Tests/EVHomeAPI.Tests.csproj" />
+  <Project Path="EVHomeAPI/EVHomeAPI.csproj" />
+</Solution>

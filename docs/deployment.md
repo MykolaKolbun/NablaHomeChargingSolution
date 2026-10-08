@@ -20,7 +20,7 @@ Compose project name `nablahome` → containers `nablahome-db-1`, `nablahome-rab
 | `db` (postgres:16-alpine) | `127.0.0.1:5434` | 128 MB | DBs: `nablahome` (EVHomeAPI), `evocpp` (created by EF on first start) |
 | `rabbitmq` | `127.0.0.1:15673` (UI) | 192 MB | vhost `/home`, AMQP not exposed to host |
 | `evocpp` | `8091` | 160 MB | OCPP WebSocket + admin REST |
-| `home-api` (step 3) | `8090` | — | |
+| `home-api` (EVHomeAPI) | `127.0.0.1:8090` | 160 MB | localhost only — reached via cloudflared; see `docs/api.md` |
 
 ## Public hostnames (Cloudflare Tunnel)
 
@@ -53,6 +53,14 @@ Charger OCPP URL: `wss://home-ocpp.alternatiview.com.ua/ws/{chargePointId}`
 | `HOME_DB_PASSWORD` | New random password |
 | `HOME_RABBITMQ_PASSWORD` | New random password |
 | `HOME_TRACE_DOWNLOAD_KEY` | New random secret for `/api/admin/traces` |
+| `HOME_JWT_KEY` | Random, ≥ 32 chars — signs user JWTs. Changing it logs everyone out |
+| `HOME_ADMIN_KEY` | Random, ≥ 24 chars — header `X-Admin-Key` for `/api/admin/*` |
+
+Generate on Windows (PowerShell):
+
+```powershell
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(36))
+```
 
 > `HOME_DB_PASSWORD` / `HOME_RABBITMQ_PASSWORD` are applied only when the volumes are first
 > created. Changing them later requires changing them inside Postgres/RabbitMQ too.
@@ -62,6 +70,7 @@ Charger OCPP URL: `wss://home-ocpp.alternatiview.com.ua/ws/{chargePointId}`
 | Workflow | Trigger | Does |
 |---|---|---|
 | `.github/workflows/evocpp.yml` | push to `master` touching `EVOCPP/OCPPServer/**`, `deploy/**`; manual | build `ghcr.io/mykolakolbun/nablahome-evocpp`, upload compose + secrets, `up -d evocpp` (starts db + rabbitmq as dependencies) |
+| `.github/workflows/evhomeapi.yml` | push to `master` touching `EVHomeAPI/**`, `EVHomeAPI.Tests/**`, `deploy/**`; manual | run tests → build `ghcr.io/mykolakolbun/nablahome-evhomeapi`, upload compose + secrets, `up -d home-api`, check `/api/health` |
 
 ## Useful commands on the Pi
 

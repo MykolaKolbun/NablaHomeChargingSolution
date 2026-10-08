@@ -2,14 +2,15 @@
 #
 # Lives on the Pi at ~/NablaHome/docker-compose.yml (copied by CI).
 # Secrets come from ~/NablaHome/.env (upserted by CI from GitHub Secrets):
-#   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_TRACE_DOWNLOAD_KEY
+#   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_TRACE_DOWNLOAD_KEY  (evocpp workflow)
+#   HOME_DB_PASSWORD, HOME_JWT_KEY, HOME_ADMIN_KEY                     (evhomeapi workflow)
 #
 # Memory: every service has mem_limit so that, under pressure, only Nabla Home
 # containers get OOM-killed — never the other projects on the same Pi.
 #
 # Public endpoints (Cloudflare Tunnel → localhost):
 #   home-ocpp.alternatiview.com.ua → 8091 (evocpp)
-#   home-api.alternatiview.com.ua  → 8090 (home-api, stage 1 step 3)
+#   home-api.alternatiview.com.ua  → 8090 (home-api / EVHomeAPI)
 
 name: nablahome
 
@@ -87,6 +88,28 @@ services:
       db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+
+  home-api:
+    image: ghcr.io/mykolakolbun/nablahome-evhomeapi:latest
+    restart: unless-stopped
+    mem_limit: 160m
+    ports:
+      # localhost only: reached exclusively via cloudflared, so CF-Connecting-IP
+      # (used for rate limiting) cannot be spoofed from the LAN.
+      - "127.0.0.1:8090:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TZ=Europe/Kyiv
+      - DOTNET_GCHeapHardLimit=0x6400000          # 100 MB managed heap
+      - DOTNET_gcServer=0
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=nablahome;Username=nablahome;Password=${HOME_DB_PASSWORD}
+      # Not ":?"-required here so that the evocpp workflow can run before these exist;
+      # EVHomeAPI itself refuses to start in Production without strong values.
+      - Jwt__Key=${HOME_JWT_KEY:-}
+      - AdminKey=${HOME_ADMIN_KEY:-}
+    depends_on:
+      db:
         condition: service_healthy
 
 configs:

@@ -1,0 +1,123 @@
+name: EVHomeAPI — test, build and deploy
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "EVHomeAPI/**"
+      - "EVHomeAPI.Tests/**"
+      - "deploy/**"
+      - ".github/workflows/evhomeapi.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-evhomeapi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        run: dotnet test EVHomeAPI.Tests/EVHomeAPI.Tests.csproj -c Release --nologo
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ARM64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./EVHomeAPI
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ghcr.io/mykolakolbun/nablahome-evhomeapi:latest
+            ghcr.io/mykolakolbun/nablahome-evhomeapi:${{ github.sha }}
+          cache-from: type=gha,scope=evhomeapi
+          cache-to: type=gha,scope=evhomeapi,mode=max
+
+      - name: Install cloudflared
+        run: |
+          curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+          echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list
+          sudo apt update && sudo apt install cloudflared -y
+
+      - name: Configure SSH to Pi
+        env:
+          PI_HOST_RAW:        ${{ secrets.PI_HOST }}
+          PI_USER:            ${{ secrets.PI_USER }}
+          PI_SSH_PRIVATE_KEY: ${{ secrets.PI_SSH_PRIVATE_KEY }}
+        run: |
+          # Accept PI_HOST with or without scheme / trailing slash ("https://host/" → "host").
+          PI_HOST="${PI_HOST_RAW#*://}"
+          PI_HOST="${PI_HOST%%/*}"
+          echo "::add-mask::$PI_HOST"
+          echo "PI=${PI_USER}@${PI_HOST}" >> "$GITHUB_ENV"
+
+          mkdir -p ~/.ssh
+          echo "$PI_SSH_PRIVATE_KEY" | base64 -d > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          cat >> ~/.ssh/config << EOF
+          Host ${PI_HOST}
+            ProxyCommand cloudflared access ssh --hostname %h
+            StrictHostKeyChecking no
+          EOF
+
+      - name: Upload compose file and secrets
+        env:
+          HOME_DB_PASSWORD: ${{ secrets.HOME_DB_PASSWORD }}
+          HOME_JWT_KEY:     ${{ secrets.HOME_JWT_KEY }}
+          HOME_ADMIN_KEY:   ${{ secrets.HOME_ADMIN_KEY }}
+        run: |
+          if [ ${#HOME_JWT_KEY} -lt 32 ] || [ ${#HOME_ADMIN_KEY} -lt 24 ]; then
+            echo "::error::Set repository secrets HOME_JWT_KEY (>=32 chars) and HOME_ADMIN_KEY (>=24 chars)"
+            exit 1
+          fi
+          ssh "$PI" "mkdir -p ~/NablaHome"
+          scp -F ~/.ssh/config deploy/docker-compose.yml "$PI":~/NablaHome/docker-compose.yml
+          # Secrets: GitHub Secrets → env → stdin → ~/NablaHome/.env (never in command args).
+          # Upsert per key so keys written by the evocpp workflow are preserved.
+          printf "HOME_DB_PASSWORD=%s\nHOME_JWT_KEY=%s\nHOME_ADMIN_KEY=%s\n" \
+            "$HOME_DB_PASSWORD" "$HOME_JWT_KEY" "$HOME_ADMIN_KEY" | \
+            ssh "$PI" '
+              touch ~/NablaHome/.env && chmod 600 ~/NablaHome/.env
+              while IFS= read -r line; do
+                key="${line%%=*}"
+                sed -i "/^${key}=/d" ~/NablaHome/.env
+                echo "$line" >> ~/NablaHome/.env
+              done
+            '
+
+      - name: Deploy home-api
+        run: |
+          ssh "$PI" "
+            cd ~/NablaHome &&
+            docker compose pull home-api &&
+            docker compose up -d home-api &&
+            sleep 20 &&
+            docker compose ps &&
+            curl -fsS http://127.0.0.1:8090/api/health
+          "
