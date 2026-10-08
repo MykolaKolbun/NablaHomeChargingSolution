@@ -1,0 +1,32 @@
+# .NET
+bin/
+obj/
+*.user
+.vs/
+appsettings.Development.json
+TestResults/
+
+# Node / Expo
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Android / native build output
+android/app/build/
+android/build/
+android/.gradle/
+android/app/.cxx/
+*.apk
+*.aab
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.keystore
