@@ -37,3 +37,12 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 - **Reference implementation here:** EVOCPP — attributes declared in the migration file,
   `ADD COLUMN IF NOT EXISTS` for idempotency.
 - **Found:** 2026-10-08, first deploy of EVOCPP on an empty database.
+
+## CB-004 · Remove self-hosted Pi workflow from EVChargingAdmin
+- **Target:** `EVChargingAdmin/.github/workflows/deploy-pi.yml` (`runs-on: self-hosted`)
+- **Status:** idea
+- **Why:** the self-hosted runner `AlternativiewHostPI4` on the Pi was removed on 2026-10-08
+  (building on the Pi was too heavy; runner idle since 2026-06-05, cost ~60 MB RAM + 1.5 GB disk).
+  Without a runner every push to `master` leaves this job queued forever. `deploy.yml`
+  (`ubuntu-latest` + QEMU arm64) already covers build and deploy.
+- **Found:** 2026-10-08, Pi memory review.
