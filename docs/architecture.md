@@ -26,7 +26,13 @@ HomeApp ──REST/SignalR──► HomeApi ──RabbitMQ (/home)──► EVOC
 
 1. ✅ EVOCPP imported; configurable RabbitMQ VirtualHost + CORS origins
 2. `deploy/docker-compose.yml` + `.github/workflows/evocpp.yml` — written, pending first deploy
-3. HomeApi skeleton: auth (JWT), stations, station access, claim-by-code
-4. OCPP integration: event consumer, authorize, sessions without cost, start/stop, SignalR
+3. Move DIY station `30011` to `home-ocpp.alternatiview.com.ua`; verify with the virtual car sketch (RemoteStart → MeterValues → Stop)
+4. EVOCPP: `SetChargingProfile` / `ClearChargingProfile` (current limit 6–16 A, TxDefault/Tx) — main feature of the DIY controller
+5. HomeApi skeleton: auth (JWT), stations, station access, claim-by-code
+6. OCPP integration: event consumer, authorize (any idTag incl. `LOCAL` for owned stations), sessions without cost, start/stop, SignalR (incl. SoC from MeterValues)
 
-Stage 2: current limit, charging schedule, availability lock, RFID cards, family members.
+Stage 2: charging schedule, availability lock, RFID cards, family members, Wallbox Copper SB onboarding.
+
+Stage 3: energy management — read Deye inverter (Solarman V5 / Modbus), modes "solar only", "solar + minimum", "fast", "night tariff". Fast load balancing stays on the charger (ESP) and works offline.
+
+Hardware context for the DIY charger: [diy-charger-controller.md](diy-charger-controller.md).
