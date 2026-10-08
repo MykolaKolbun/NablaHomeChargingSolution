@@ -44,15 +44,18 @@ If verification fails:
 Nabla Home — home EV charger management (no payments, no fiscal, no wallet).
 Fully separate from the commercial solution in `..\NablaPublicChargingSolution`.
 
+- `EVOCPP/` — OCPP gateway, home version (imported from commercial OCPP_RD with history, now independent)
 - `HomeApi/` — .NET 10 backend (system of record for home users, stations, sessions)
 - `HomeApi.Tests/` — xUnit tests
 - `HomeApp/` — Expo / React Native app (design mirrors `NablaPublicChargingSolution/EVChargingApp`)
-- `deploy/` — docker-compose: home-api, ocpp-home, postgres, rabbitmq
+- `deploy/` — docker-compose: home-api, evocpp, postgres, rabbitmq
 - `docs/` — architecture and decisions (read `docs/architecture.md` first)
 
 Rules specific to this repo:
-- The OCPP gateway is NOT forked. `ocpp-home` runs the same `ocppserver` image as the
-  commercial solution with its own config (DB, RabbitMQ vhost). Protocol changes go to
-  `..\NablaPublicChargingSolution\EVOCPP` and must stay backward compatible.
+- `..\NablaPublicChargingSolution` is a **read-only reference**. Read it for patterns and
+  ideas; never edit, commit to, build images from, or depend on anything there.
+  No shared code, packages, images, DBs or brokers. Anything reused is copied into this repo.
+- `EVOCPP/` is our own gateway. Change it freely; no backward-compatibility obligation
+  to the commercial OCPP_RD and no syncing in either direction.
 - Never copy wallet / payment / fiscal code from EVChargingApi.
 - Target chargers: OCPP 1.6J first.

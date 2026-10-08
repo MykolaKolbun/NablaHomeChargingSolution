@@ -5,6 +5,7 @@ review history. No payments.
 
 | Folder | What |
 |---|---|
+| `EVOCPP/` | OCPP 1.6J / 2.x gateway (home version) |
 | `HomeApi/` | .NET 10 backend |
 | `HomeApi.Tests/` | Backend tests |
 | `HomeApp/` | Mobile app (Expo) |
