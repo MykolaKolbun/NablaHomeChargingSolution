@@ -1,13 +1,15 @@
 /*
  * EVHomeAPI — Nabla Home backend (home chargers, no payments).
  *
- * Stage 1 (this skeleton): users + JWT auth, stations, station access, claim-by-code.
- * Next: RabbitMQ consumer of EVOCPP events, sessions, start/stop, SignalR hub.
+ * Users + JWT auth, stations + claim-by-code, charging sessions driven by EVOCPP
+ * events (RabbitMQ), RemoteStart/Stop commands, SignalR hub for live updates.
  */
 
 using System.Text;
 using System.Threading.RateLimiting;
 using EVHomeAPI.Data;
+using EVHomeAPI.Hubs;
+using EVHomeAPI.Ocpp;
 using EVHomeAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -28,7 +30,18 @@ if (builder.Environment.IsProduction())
 
 // ── Services ──────────────────────────────────────────────────────────────────
 builder.Services.AddControllers();
+builder.Services.AddSignalR();
 builder.Services.AddScoped<TokenService>();
+builder.Services.AddSingleton(TimeProvider.System);
+
+// ── EVOCPP integration (RabbitMQ) ─────────────────────────────────────────────
+builder.Services.AddSingleton(config.GetSection(RabbitMqOptions.Section).Get<RabbitMqOptions>() ?? new RabbitMqOptions());
+builder.Services.AddSingleton<RabbitMqConnection>();
+builder.Services.AddSingleton<IOcppCommandPublisher, RabbitMqCommandPublisher>();
+builder.Services.AddSingleton<INotifier, SignalRNotifier>();
+builder.Services.AddScoped<OcppEventProcessor>();
+builder.Services.AddHostedService<OcppEventConsumer>();
+builder.Services.AddHostedService<StaleSessionWatchdog>();
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(config.GetConnectionString("Default")));
@@ -47,7 +60,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!)),
         };
 
-        // SignalR (next step) sends the JWT in the query string on WebSocket upgrade.
+        // SignalR sends the JWT in the query string on WebSocket upgrade.
         opt.Events = new JwtBearerEvents
         {
             OnMessageReceived = ctx =>
@@ -100,6 +113,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<ChargerHub>("/hubs/charger");
 
 app.Run();
 

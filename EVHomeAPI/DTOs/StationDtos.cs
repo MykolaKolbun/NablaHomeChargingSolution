@@ -1,8 +1,21 @@
 using System.ComponentModel.DataAnnotations;
+using EVHomeAPI.Models;
 
 namespace EVHomeAPI.DTOs;
 
-public record StationDto(int Id, string OcppId, string Name, string Role, DateTime? ClaimedAt);
+public record StationDto(
+    int       Id,
+    string    OcppId,
+    string    Name,
+    string    Role,
+    DateTime? ClaimedAt,
+    bool      IsOnline,
+    string?   ConnectorStatus,
+    DateTime? LastStatusAt)
+{
+    public static StationDto From(Station s, StationRole role) => new(
+        s.Id, s.OcppId, s.Name, role.ToString(), s.ClaimedAt, s.IsOnline, s.ConnectorStatus, s.LastStatusAt);
+}
 
 public record ClaimStationRequest(
     [Required, StringLength(64, MinimumLength = 1)] string OcppId,

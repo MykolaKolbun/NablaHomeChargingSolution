@@ -2,7 +2,11 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using EVHomeAPI.Data;
 using EVHomeAPI.DTOs;
+using EVHomeAPI.Hubs;
+using EVHomeAPI.Ocpp;
+using EVHomeAPI.Services;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
@@ -43,7 +47,54 @@ public class ApiFactory : WebApplicationFactory<Program>
             var options = new DbContextOptionsBuilder<AppDbContext>().UseInMemoryDatabase(_dbName).Options;
             services.AddSingleton(options);
             services.AddScoped<AppDbContext>();
+
+            // No RabbitMQ in tests: drop background services, record commands/pushes instead.
+            foreach (var d in services.Where(s => s.ServiceType == typeof(IHostedService) &&
+                         (s.ImplementationType == typeof(OcppEventConsumer) ||
+                          s.ImplementationType == typeof(StaleSessionWatchdog))).ToList())
+                services.Remove(d);
+            Replace<IOcppCommandPublisher>(services, Commands);
+            Replace<INotifier>(services, Notifier);
+            Replace<TimeProvider>(services, Clock);
         });
+    }
+
+    private static void Replace<T>(IServiceCollection services, T instance) where T : class
+    {
+        foreach (var d in services.Where(s => s.ServiceType == typeof(T)).ToList())
+            services.Remove(d);
+        services.AddSingleton(instance);
+    }
+
+    public FakeCommandPublisher Commands { get; } = new();
+    public FakeNotifier         Notifier { get; } = new();
+    public ManualTimeProvider   Clock    { get; } = new(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
+
+    /// <summary>Feeds one EVOCPP event through the real processor (as the consumer would).</summary>
+    public async Task PublishEventAsync(string routingKey, object payload)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        var json = System.Text.Json.JsonSerializer.Serialize(payload,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        await scope.ServiceProvider.GetRequiredService<OcppEventProcessor>().HandleAsync(routingKey, json);
+    }
+
+    public async Task WithDbAsync(Func<AppDbContext, Task> action)
+    {
+        await using var scope = Services.CreateAsyncScope();
+        await action(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    }
+
+    /// <summary>Creates station → registers a user → claims it. Returns the owner client and station id.</summary>
+    public async Task<(HttpClient Owner, int StationId)> CreateOwnedStationAsync(string ocppId = "30011", bool online = true)
+    {
+        var created = await CreateStationAsync(ocppId);
+        var owner   = await CreateUserClientAsync();
+        (await owner.PostAsJsonAsync("/api/stations/claim", new ClaimStationRequest(ocppId, created.ClaimCode))).EnsureSuccessStatusCode();
+        if (online)
+            await PublishEventAsync(OcppRoutingKeys.StatusChanged,
+                new StatusChangedEvent(ocppId, "Available", 1, true, null));
+        return (owner, created.Id);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

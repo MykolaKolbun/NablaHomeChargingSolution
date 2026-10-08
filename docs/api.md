@@ -32,10 +32,63 @@ Emails are case-insensitive (stored lower-case). Rate limit: 10 req/min per clie
 | GET 🔒 | `/api/stations/{id}` | — | `200 StationDto` · `404` (also when no access) |
 | POST 🔒 | `/api/stations/claim` | `{ocppId, claimCode}` | `200 StationDto` (role `Owner`) · `400` invalid ID/code/already claimed |
 
-`StationDto`: `{id, ocppId, name, role: "Owner"|"Member", claimedAt}`
+`StationDto`: `{id, ocppId, name, role: "Owner"|"Member", claimedAt, isOnline, connectorStatus, lastStatusAt}`
+— `connectorStatus` is connector 1 in OCPP 1.6 vocabulary (`Available`, `Preparing`, `Charging`, `SuspendedEV`, `Finishing`, `Faulted`, …).
 
 Claim codes: format `XXXX-XXXX`, case and dashes ignored, **one-time**. Unknown station, wrong code
 and already-claimed return the same `400` (no station-ID discovery). Rate limit: 5 req/min per client IP.
+
+## Charging
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST 🔒 | `/api/stations/{id}/start` | `{connectorId?: 1}` | `202 SessionDto` (Pending) · `409` offline / session in progress · `503` gateway down |
+| POST 🔒 | `/api/stations/{id}/stop` | — | `202 SessionDto` (Stopping; idempotent) · `409` idle or still starting |
+| GET 🔒 | `/api/stations/{id}/session` | — | `200 SessionDto` in progress · `204` idle |
+| GET 🔒 | `/api/stations/{id}/sessions?limit=50` | — | `200 [SessionDto]` newest first (max 200) |
+| GET 🔒 | `/api/sessions/{id}` | — | `200 SessionDto` · `404` |
+| GET 🔒 | `/api/sessions/{id}/meter-history` | — | `200 [{elapsedSec, currentPowerKw, soc}]` ~1 sample / 30 s |
+
+`SessionDto`: `{id, stationId, status, initiatedBy: "App"|"Charger", stopReason?: "UserInitiated"|"ChargerInitiated", createdAt, startedAt, endedAt, energyKwh, currentPowerKw, soc, transactionId}`
+
+Session lifecycle:
+
+```
+App start:     Pending ──SessionStarted──► Active ──stop──► Stopping ──SessionFinalized──► Completed
+                  └──SessionStartFailed (Rejected|Timeout)──► Cancelled      └─SessionStopFailed──► Active
+Charger start (button / RFID / LOCAL):     Active (owner) ─────────────────────────────────► Completed
+```
+
+`start`/`stop` return immediately; the outcome arrives over SignalR. A Pending or Stopping session
+with no answer from EVOCPP for 3 min is resolved by the watchdog (`Timeout`).
+One open session per station is enforced by a unique filtered index.
+
+## SignalR — `/hubs/charger`
+
+JWT via `?access_token=<token>`. After connecting call `JoinStation(stationId)` (fails with
+`HubException "No access to this station."` without access) and `LeaveStation(stationId)`.
+Event names and payloads are identical to the commercial Nabla app (`totalCost` is always `null`):
+
+| Event | Payload |
+|---|---|
+| `StatusUpdated` | `{stationId, ocppConnectorId, status, isConnected, carId}` |
+| `SessionStarted` | `{stationId, sessionId, transactionId, meterStartWh}` |
+| `SessionStartFailed` | `{stationId, sessionId, reason: "Rejected"\|"Timeout"}` |
+| `MeterUpdated` | `{stationId, sessionId, energyKwh, currentPowerKw, totalCost: null, soc}` |
+| `SessionFinalized` | `{stationId, sessionId, energyKwh, totalCost: null, stopReason}` |
+| `SessionStopFailed` | `{stationId, sessionId, reason: "Rejected"\|"Timeout"}` |
+
+## EVOCPP integration (RabbitMQ vhost `/home`)
+
+- Consumes every `charger.#` event from one durable queue `evhome.events` with prefetch 1
+  (strict publish order). Unknown/unclaimed stations are ignored.
+- Publishes `command.remote.start` (`IdTag = "U{userId}"`, `TrackingId` for correlation),
+  `command.remote.stop`, `command.authorize.response`.
+- ISO 15118 `charger.authorize.requested` → `Accepted` if the station has an owner, else `Rejected`.
+- Regular idTags (RFID, `LOCAL` button) are accepted by EVOCPP itself; EVHomeAPI attributes the
+  resulting transaction to the station owner.
+- Casing: commands are PascalCase (EVOCPP deserializes case-sensitively), except
+  `command.authorize.response` which EVOCPP reads as exact camelCase `ocppId`/`status`.
 
 ## Admin (`X-Admin-Key`)
 

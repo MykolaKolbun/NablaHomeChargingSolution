@@ -30,8 +30,8 @@ EVHomeApp ──REST/SignalR──► EVHomeAPI ──RabbitMQ (/home)──► 
    - DIY hardware development is paused; the DIY station stays connected as-is.
    - End-to-end tests (RemoteStart → MeterValues → Stop, charging profiles) run on the **Wallbox Copper SB** test charger, powered on when needed.
 4. EVOCPP: `SetChargingProfile` / `ClearChargingProfile` (current limit 6–16 A, TxDefault/Tx) — main feature of the DIY controller
-5. EVHomeAPI skeleton: auth (JWT), stations, station access, claim-by-code — code + 17 tests done, see `docs/api.md`; pending first deploy
-6. OCPP integration: event consumer, authorize (any idTag incl. `LOCAL` for owned stations), sessions without cost, start/stop, SignalR (incl. SoC from MeterValues)
+5. ✅ (2026-10-08) EVHomeAPI skeleton: auth (JWT), stations, station access, claim-by-code — deployed, see `docs/api.md`
+6. OCPP integration: event consumer, authorize, sessions without cost, start/stop, SignalR (incl. SoC from MeterValues) — code + 37 tests done; pending deploy and e2e test on Wallbox Copper SB
 
 Stage 2: charging schedule, availability lock, RFID cards, family members, Wallbox Copper SB onboarding.
 

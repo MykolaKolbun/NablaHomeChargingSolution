@@ -4,8 +4,8 @@ namespace EVHomeAPI.Models;
 /// A home charger known to Nabla Home. Created by an admin together with a one-time
 /// claim code; a user becomes its Owner by presenting OcppId + claim code.
 ///
-/// Live state (online, connector status, meter) lives in EVOCPP and arrives via
-/// RabbitMQ — it is not stored here (stage 1 step 6).
+/// Live state (online, connector status) is mirrored from EVOCPP events
+/// (charger.status.changed); EVOCPP remains the source of truth.
 /// </summary>
 public class Station
 {
@@ -22,5 +22,12 @@ public class Station
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ClaimedAt { get; set; }
 
-    public ICollection<StationAccess> Accesses { get; set; } = [];
+    // ── Live state mirrored from EVOCPP ──────────────────────────────────────
+    public bool      IsOnline        { get; set; }
+    /// <summary>Connector 1 status as reported by the charger (OCPP 1.6 vocabulary), e.g. Available, Preparing, Charging.</summary>
+    public string?   ConnectorStatus { get; set; }
+    public DateTime? LastStatusAt    { get; set; }
+
+    public ICollection<StationAccess>   Accesses { get; set; } = [];
+    public ICollection<ChargingSession> Sessions { get; set; } = [];
 }
