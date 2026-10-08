@@ -53,6 +53,6 @@ Fully separate from the commercial solution in `..\NablaPublicChargingSolution`.
 Rules specific to this repo:
 - The OCPP gateway is NOT forked. `ocpp-home` runs the same `ocppserver` image as the
   commercial solution with its own config (DB, RabbitMQ vhost). Protocol changes go to
-  `..\NablaPublicChargingSolution\OCPP_RD` and must stay backward compatible.
+  `..\NablaPublicChargingSolution\EVOCPP` and must stay backward compatible.
 - Never copy wallet / payment / fiscal code from EVChargingApi.
 - Target chargers: OCPP 1.6J first.
