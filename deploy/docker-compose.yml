@@ -47,9 +47,11 @@ services:
       RABBITMQ_DEFAULT_USER: nablahome
       RABBITMQ_DEFAULT_PASS: ${HOME_RABBITMQ_PASSWORD:?set HOME_RABBITMQ_PASSWORD in .env}
       RABBITMQ_DEFAULT_VHOST: /home
-      # Keep the Erlang VM small: fewer schedulers, cap at 60% of mem_limit
+      # Keep the Erlang VM small: fewer schedulers
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 1:1 +A 4"
-      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.6"
+    configs:
+      - source: rabbitmq_conf
+        target: /etc/rabbitmq/conf.d/90-nablahome.conf
     ports:
       - "127.0.0.1:15673:15672" # management UI, localhost only (commercial uses 15672)
     volumes:
@@ -86,6 +88,14 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+
+configs:
+  rabbitmq_conf:
+    # Env var RABBITMQ_VM_MEMORY_HIGH_WATERMARK is rejected by RabbitMQ 3.13+ — use config.
+    # Absolute value: publishers are throttled before the 192m container limit is reached.
+    content: |
+      vm_memory_high_watermark.absolute = 110MiB
+      disk_free_limit.absolute = 500MB
 
 volumes:
   db_data:
