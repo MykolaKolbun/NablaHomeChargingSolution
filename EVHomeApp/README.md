@@ -1,0 +1,42 @@
+# EVHomeApp — Nabla Home mobile app
+
+Expo 54 / React Native 0.81 / TypeScript (strict). Design system copied from the commercial
+Nabla app (`theme/`, `Button`, `Card`, `PowerChart`, `ThemeContext`). Backend: EVHomeAPI
+(`docs/api.md`), base URL in `app.json` → `expo.extra.apiBaseUrl`.
+
+## Screens
+
+| Screen | What |
+|---|---|
+| Login / Register | JWT auth (EVHomeAPI `/api/auth`) |
+| My chargers | list with live status; with one charger it opens directly |
+| Charger | status → Start → live timer, energy, power, SoC, power chart → Stop (confirm sheet) |
+| Add charger | station ID + one-time claim code |
+| History | sessions of a charger |
+| Profile | dark/light theme, language (uk/en), sign out |
+
+Live data: `src/hooks/useStationLive.ts` — REST is the source of truth, SignalR
+(`src/api/stationHub.ts`, `/hubs/charger`) makes it instant; reloads on reconnect and on app
+foreground, polls every 30 s while the hub is disconnected.
+
+## Run on a phone (Expo Go, SDK 54)
+
+```bash
+npm install
+npx expo start --port 8082
+```
+
+Scan the QR code with Expo Go. Phone and PC must be on the same network.
+
+> Port 8081 (Expo's default) is taken on the dev PC by McAfee Agent (`macmnsvc.exe`) —
+> use another port.
+
+Web (`npx expo start --web --port 19006`) renders the UI, but API calls are blocked by CORS
+(EVHomeAPI does not allow browser origins) — use a phone for real testing.
+
+## Checks
+
+```bash
+npx tsc --noEmit
+npx expo export --platform web --output-dir <tmp>
+```
