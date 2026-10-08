@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ChargerSim": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}
