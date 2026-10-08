@@ -77,8 +77,12 @@ builder.Services.AddDbContext<ChargingDBContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ── CORS ───────────────────────────────────────────────────────────────────────
+// Cors:AllowedOrigins lets another deployment (e.g. ocpp-home) point at its own admin UI.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+if (corsOrigins is null || corsOrigins.Length == 0)
+    corsOrigins = ["https://admin.alternatiview.com.ua"];
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
-    policy.WithOrigins("https://admin.alternatiview.com.ua")
+    policy.WithOrigins(corsOrigins)
           .AllowAnyHeader()
           .AllowAnyMethod()));
 
@@ -134,6 +138,7 @@ await RabbitMqPublisher.ConfigureAsync(
     host:             app.Configuration["RabbitMQ:Host"]     ?? "rabbitmq",
     username:         app.Configuration["RabbitMQ:Username"] ?? "guest",
     password:         app.Configuration["RabbitMQ:Password"] ?? "guest",
+    virtualHost:      app.Configuration["RabbitMQ:VirtualHost"] ?? "/",
     tracer:           app.Services.GetRequiredService<ITracingService>(),
     reconnectDelayMs: app.Configuration.GetValue("RabbitMQ:ReconnectDelayMs", 5_000));
 

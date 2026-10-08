@@ -40,7 +40,7 @@ public static class RabbitMqPublisher
     /// Failures are logged but non-fatal — the server runs without event publishing.
     /// </summary>
     public static async Task ConfigureAsync(string host, string username, string password,
-        ITracingService tracer, int reconnectDelayMs = 5_000)
+        ITracingService tracer, int reconnectDelayMs = 5_000, string virtualHost = "/")
     {
         // Retry until RabbitMQ is ready — mirrors the retry loop in EVChargingApi's
         // RabbitMqConsumerService so startup ordering never causes a silent failure.
@@ -54,6 +54,7 @@ public static class RabbitMqPublisher
                     HostName                 = host,
                     UserName                 = username,
                     Password                 = password,
+                    VirtualHost              = virtualHost,
                     AutomaticRecoveryEnabled = true,   // reconnect after broker restart
                 };
                 _connection = await factory.CreateConnectionAsync();
@@ -66,7 +67,7 @@ public static class RabbitMqPublisher
                     durable:    true,
                     autoDelete: false);
 
-                _tracer.Info("RMQ", $"Connected to '{host}', exchange '{Exchange}' ready.");
+                _tracer.Info("RMQ", $"Connected to '{host}' vhost '{virtualHost}', exchange '{Exchange}' ready.");
                 return;
             }
             catch (Exception ex)

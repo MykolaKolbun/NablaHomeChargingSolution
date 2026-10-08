@@ -679,7 +679,8 @@ OCPPServer reads its configuration from `appsettings.json` (overridable by envir
 | `RabbitMq:Host` | RabbitMQ broker hostname |
 | `RabbitMq:Port` | Default `5672` |
 | `RabbitMq:Username` / `Password` | Broker credentials |
-| `RabbitMq:VirtualHost` | Default `/` |
+| `RabbitMq:VirtualHost` | Default `/`. Lets a second deployment (e.g. `ocpp-home`) share one broker in isolation |
+| `Cors:AllowedOrigins` | Array of admin UI origins. Default `["https://admin.alternatiview.com.ua"]` |
 | `Trace:DownloadKey` | Shared secret for the `/api/admin/traces` endpoints |
 | `Tracing:MinPersistLevel` | Minimum `ErrorLogLevel` written to the `ErrorLogs` table. Values: `Info`, `Warning`, `Error`, `Critical`. Default `Warning`. |
 | `Tracing:RetentionDays` | Error log rows older than this many days are deleted by the daily cleanup job. Default `3`. |
