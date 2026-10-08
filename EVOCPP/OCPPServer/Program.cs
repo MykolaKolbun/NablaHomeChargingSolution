@@ -77,10 +77,9 @@ builder.Services.AddDbContext<ChargingDBContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // ── CORS ───────────────────────────────────────────────────────────────────────
-// Cors:AllowedOrigins lets another deployment (e.g. ocpp-home) point at its own admin UI.
-var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
-if (corsOrigins is null || corsOrigins.Length == 0)
-    corsOrigins = ["https://admin.alternatiview.com.ua"];
+// Cors:AllowedOrigins — browser origins allowed to call the admin REST API.
+// Empty (default) = no cross-origin access.
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
     policy.WithOrigins(corsOrigins)
           .AllowAnyHeader()

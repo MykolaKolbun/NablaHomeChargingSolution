@@ -1,0 +1,93 @@
+# Nabla Home stack on the Raspberry Pi (ARM64, ~1 GB RAM shared with other projects).
+#
+# Lives on the Pi at ~/NablaHome/docker-compose.yml (copied by CI).
+# Secrets come from ~/NablaHome/.env (upserted by CI from GitHub Secrets):
+#   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_TRACE_DOWNLOAD_KEY
+#
+# Memory: every service has mem_limit so that, under pressure, only Nabla Home
+# containers get OOM-killed — never the other projects on the same Pi.
+#
+# Public endpoints (Cloudflare Tunnel → localhost):
+#   home-ocpp.alternatiview.com.ua → 8091 (evocpp)
+#   home-api.alternatiview.com.ua  → 8090 (home-api, stage 1 step 3)
+
+name: nablahome
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      POSTGRES_DB: nablahome
+      POSTGRES_USER: nablahome
+      POSTGRES_PASSWORD: ${HOME_DB_PASSWORD:?set HOME_DB_PASSWORD in .env}
+    # Small-footprint tuning for a handful of chargers
+    command: >
+      postgres
+        -c shared_buffers=16MB
+        -c work_mem=2MB
+        -c maintenance_work_mem=16MB
+        -c max_connections=30
+    ports:
+      - "127.0.0.1:5434:5432"   # localhost only — debugging via SSH tunnel
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nablahome -d nablahome"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine   # same image as already on the Pi — no extra disk
+    restart: unless-stopped
+    mem_limit: 192m
+    environment:
+      RABBITMQ_DEFAULT_USER: nablahome
+      RABBITMQ_DEFAULT_PASS: ${HOME_RABBITMQ_PASSWORD:?set HOME_RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: /home
+      # Keep the Erlang VM small: fewer schedulers, cap at 60% of mem_limit
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 1:1 +A 4"
+      RABBITMQ_VM_MEMORY_HIGH_WATERMARK: "0.6"
+    ports:
+      - "127.0.0.1:15673:15672" # management UI, localhost only (commercial uses 15672)
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  evocpp:
+    image: ghcr.io/mykolakolbun/nablahome-evocpp:latest
+    restart: unless-stopped
+    mem_limit: 160m
+    ports:
+      - "8091:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - TZ=Europe/Kyiv
+      - DOTNET_GCHeapHardLimit=0x6400000          # 100 MB managed heap
+      - DOTNET_gcServer=0
+      - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=evocpp;Username=nablahome;Password=${HOME_DB_PASSWORD}
+      - RabbitMQ__Host=rabbitmq
+      - RabbitMQ__Username=nablahome
+      - RabbitMQ__Password=${HOME_RABBITMQ_PASSWORD}
+      - RabbitMQ__VirtualHost=/home
+      - Trace__DownloadKey=${HOME_TRACE_DOWNLOAD_KEY:-}
+      - Trace__Level=1
+      - Tracing__MinPersistLevel=Info
+    volumes:
+      - evocpp_traces:/app/traces
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  rabbitmq_data:
+  evocpp_traces:
