@@ -55,6 +55,9 @@ Rules specific to this repo:
 - `..\NablaPublicChargingSolution` is a **read-only reference**. Read it for patterns and
   ideas; never edit, commit to, build images from, or depend on anything there.
   No shared code, packages, images, DBs or brokers. Anything reused is copied into this repo.
+- Improvements found here that would also benefit the commercial solution are NOT applied
+  there from this repo. Log them in `docs/commercial-backlog.md` (what, why, where it lives
+  here); they are applied later, separately, in the commercial repos.
 - `EVOCPP/` is our own gateway. Change it freely; no backward-compatibility obligation
   to the commercial OCPP_RD and no syncing in either direction.
 - Never copy wallet / payment / fiscal code from EVChargingApi.
