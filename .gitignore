@@ -30,3 +30,6 @@ android/app/.cxx/
 !.env.example
 *.pfx
 *.keystore
+
+# Firmware secrets
+firmware/**/secrets.h
