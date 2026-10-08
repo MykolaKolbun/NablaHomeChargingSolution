@@ -12,23 +12,23 @@
 | D5 | A charger is connected to exactly one system (commercial or home) | Moving a charger = changing its OCPP URL; no dual membership |
 | D6 | OCPP 1.6J first | Most common home wallboxes |
 | D7 | Schedules / current limits are pushed to the charger (`TxDefaultProfile`), RFID via Local Auth List | Must keep working when home internet drops |
-| D8 | HomeApi exposes the same SignalR event shapes as EVChargingApi | Reuse the mobile `SessionService` pattern (copied) |
+| D8 | EVHomeAPI exposes the same SignalR event shapes as EVChargingApi | Reuse the mobile `SessionService` pattern (copied) |
 
 ## Topology
 
 ```
-HomeApp ──REST/SignalR──► HomeApi ──RabbitMQ (/home)──► EVOCPP ──WS──► home wallbox
-                             │                             │
-                          DB nablahome                  DB evocpp
+EVHomeApp ──REST/SignalR──► EVHomeAPI ──RabbitMQ (/home)──► EVOCPP ──WS──► home wallbox
+                                │                              │
+                           DB nablahome                    DB evocpp
 ```
 
 ## Stage 1 scope
 
 1. ✅ EVOCPP imported; configurable RabbitMQ VirtualHost + CORS origins
-2. `deploy/docker-compose.yml` + `.github/workflows/evocpp.yml` — written, pending first deploy
+2. ✅ `deploy/docker-compose.yml` + `.github/workflows/evocpp.yml` — deployed to the Pi 2026-10-08, `wss://home-ocpp.alternatiview.com.ua` answers (WebSocket 101)
 3. Move DIY station `30011` to `home-ocpp.alternatiview.com.ua`; verify with the virtual car sketch (RemoteStart → MeterValues → Stop)
 4. EVOCPP: `SetChargingProfile` / `ClearChargingProfile` (current limit 6–16 A, TxDefault/Tx) — main feature of the DIY controller
-5. HomeApi skeleton: auth (JWT), stations, station access, claim-by-code
+5. EVHomeAPI skeleton: auth (JWT), stations, station access, claim-by-code
 6. OCPP integration: event consumer, authorize (any idTag incl. `LOCAL` for owned stations), sessions without cost, start/stop, SignalR (incl. SoC from MeterValues)
 
 Stage 2: charging schedule, availability lock, RFID cards, family members, Wallbox Copper SB onboarding.

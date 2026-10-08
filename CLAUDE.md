@@ -45,9 +45,9 @@ Nabla Home — home EV charger management (no payments, no fiscal, no wallet).
 Fully separate from the commercial solution in `..\NablaPublicChargingSolution`.
 
 - `EVOCPP/` — OCPP gateway, home version (imported from commercial OCPP_RD with history, now independent)
-- `HomeApi/` — .NET 10 backend (system of record for home users, stations, sessions)
-- `HomeApi.Tests/` — xUnit tests
-- `HomeApp/` — Expo / React Native app (design mirrors `NablaPublicChargingSolution/EVChargingApp`)
+- `EVHomeAPI/` — .NET 10 backend (system of record for home users, stations, sessions)
+- `EVHomeAPI.Tests/` — xUnit tests
+- `EVHomeApp/` — Expo / React Native app (design mirrors `NablaPublicChargingSolution/EVChargingApp`)
 - `deploy/` — docker-compose: home-api, evocpp, postgres, rabbitmq
 - `docs/` — architecture and decisions (read `docs/architecture.md` first)
 

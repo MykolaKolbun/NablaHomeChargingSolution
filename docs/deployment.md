@@ -17,7 +17,7 @@ Compose project name `nablahome` → containers `nablahome-db-1`, `nablahome-rab
 
 | Service | Host port | Memory limit | Notes |
 |---|---|---|---|
-| `db` (postgres:16-alpine) | `127.0.0.1:5434` | 128 MB | DBs: `nablahome` (HomeApi), `evocpp` (created by EF on first start) |
+| `db` (postgres:16-alpine) | `127.0.0.1:5434` | 128 MB | DBs: `nablahome` (EVHomeAPI), `evocpp` (created by EF on first start) |
 | `rabbitmq` | `127.0.0.1:15673` (UI) | 192 MB | vhost `/home`, AMQP not exposed to host |
 | `evocpp` | `8091` | 160 MB | OCPP WebSocket + admin REST |
 | `home-api` (step 3) | `8090` | — | |
