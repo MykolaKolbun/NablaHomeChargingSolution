@@ -52,12 +52,23 @@ jobs:
           sudo apt update && sudo apt install cloudflared -y
 
       - name: Configure SSH to Pi
+        env:
+          PI_HOST_RAW:        ${{ secrets.PI_HOST }}
+          PI_USER:            ${{ secrets.PI_USER }}
+          PI_SSH_PRIVATE_KEY: ${{ secrets.PI_SSH_PRIVATE_KEY }}
         run: |
+          # Accept PI_HOST with or without scheme / trailing slash ("https://host/" → "host").
+          # scp splits "user@host:path" on the first ':', so a scheme would break it.
+          PI_HOST="${PI_HOST_RAW#*://}"
+          PI_HOST="${PI_HOST%%/*}"
+          echo "::add-mask::$PI_HOST"
+          echo "PI=${PI_USER}@${PI_HOST}" >> "$GITHUB_ENV"
+
           mkdir -p ~/.ssh
-          echo "${{ secrets.PI_SSH_PRIVATE_KEY }}" | base64 -d > ~/.ssh/id_ed25519
+          echo "$PI_SSH_PRIVATE_KEY" | base64 -d > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           cat >> ~/.ssh/config << EOF
-          Host ${{ secrets.PI_HOST }}
+          Host ${PI_HOST}
             ProxyCommand cloudflared access ssh --hostname %h
             StrictHostKeyChecking no
           EOF
@@ -68,7 +79,6 @@ jobs:
           HOME_RABBITMQ_PASSWORD:  ${{ secrets.HOME_RABBITMQ_PASSWORD }}
           HOME_TRACE_DOWNLOAD_KEY: ${{ secrets.HOME_TRACE_DOWNLOAD_KEY }}
         run: |
-          PI="${{ secrets.PI_USER }}@${{ secrets.PI_HOST }}"
           ssh "$PI" "mkdir -p ~/NablaHome"
           scp -F ~/.ssh/config deploy/docker-compose.yml "$PI":~/NablaHome/docker-compose.yml
           # Secrets: GitHub Secrets → env → stdin → ~/NablaHome/.env (never in command args).
@@ -86,7 +96,7 @@ jobs:
 
       - name: Deploy evocpp
         run: |
-          ssh "${{ secrets.PI_USER }}@${{ secrets.PI_HOST }}" "
+          ssh "$PI" "
             cd ~/NablaHome &&
             docker compose pull evocpp &&
             docker compose up -d evocpp &&
