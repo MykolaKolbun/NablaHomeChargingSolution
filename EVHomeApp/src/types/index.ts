@@ -24,14 +24,14 @@ export interface Station {
 
 export type LimitStatus = 'Pending' | 'Applied' | 'Rejected' | 'NotSupported' | 'Timeout' | 'Error';
 
-export type SessionStatus = 'Pending' | 'Active' | 'Stopping' | 'Completed' | 'Cancelled';
+export type SessionStatus = 'Pending' | 'Active' | 'Stopping' | 'Paused' | 'Completed' | 'Cancelled';
 
 export interface Session {
   id:             number;
   stationId:      number;
   status:         SessionStatus;
   initiatedBy:    'App' | 'Charger';
-  stopReason:     'UserInitiated' | 'ChargerInitiated' | null;
+  stopReason:     'UserInitiated' | 'ChargerInitiated' | 'PowerLoss' | null;
   createdAt:      string;
   startedAt:      string | null;
   endedAt:        string | null;
@@ -51,6 +51,8 @@ export interface SessionStartFailedMsg { stationId: number; sessionId: number; r
 export interface MeterUpdatedMsg       { stationId: number; sessionId: number; energyKwh: number; currentPowerKw: number | null; totalCost: null; soc: number | null }
 export interface SessionFinalizedMsg   { stationId: number; sessionId: number; energyKwh: number; totalCost: null; stopReason: string }
 export interface SessionStopFailedMsg  { stationId: number; sessionId: number; reason: 'Rejected' | 'Timeout' }
+/** Charger lost power / went offline mid-session. Resume arrives as SessionStarted (same sessionId). */
+export interface SessionPausedMsg      { stationId: number; sessionId: number; reason: 'ChargerOffline' | 'PowerLoss' }
 export interface ChargingLimitUpdatedMsg { stationId: number; limitA: number | null; status: LimitStatus }
 
 /** One chart sample — same shape PowerChart expects (t = elapsed seconds). */

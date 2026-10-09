@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, TOKEN_KEY } from './client';
 import type {
   MeterUpdatedMsg, SessionFinalizedMsg, SessionStartedMsg, SessionStartFailedMsg,
-  SessionStopFailedMsg, StatusUpdatedMsg, ChargingLimitUpdatedMsg,
+  SessionStopFailedMsg, SessionPausedMsg, StatusUpdatedMsg, ChargingLimitUpdatedMsg,
 } from '../types';
 
 export interface StationListener {
@@ -24,6 +24,7 @@ export interface StationListener {
   onMeter?:            (m: MeterUpdatedMsg) => void;
   onSessionFinalized?: (m: SessionFinalizedMsg) => void;
   onSessionStopFailed?: (m: SessionStopFailedMsg) => void;
+  onSessionPaused?:    (m: SessionPausedMsg) => void;
   onLimitUpdated?:     (m: ChargingLimitUpdatedMsg) => void;
   onReconnected?:      () => void;
   onConnectionChange?: (connected: boolean) => void;
@@ -82,6 +83,7 @@ class StationHub {
     conn.on('MeterUpdated',         forward<MeterUpdatedMsg>('MeterUpdated', l => l.onMeter));
     conn.on('SessionFinalized',     forward<SessionFinalizedMsg>('SessionFinalized', l => l.onSessionFinalized));
     conn.on('SessionStopFailed',    forward<SessionStopFailedMsg>('SessionStopFailed', l => l.onSessionStopFailed));
+    conn.on('SessionPaused',        forward<SessionPausedMsg>('SessionPaused', l => l.onSessionPaused));
     conn.on('ChargingLimitUpdated', forward<ChargingLimitUpdatedMsg>('ChargingLimitUpdated', l => l.onLimitUpdated));
 
     conn.onreconnecting(() => { this.log('hub:reconnecting', null); this.broadcast(l => l.onConnectionChange?.(false)); });

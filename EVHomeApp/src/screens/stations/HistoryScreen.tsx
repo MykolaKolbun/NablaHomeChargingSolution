@@ -57,7 +57,7 @@ export default function HistoryScreen({ route }: Props) {
       ListEmptyComponent={<Text style={[styles.muted, styles.empty]}>{t('history.empty')}</Text>}
       renderItem={({ item }) => {
         const cancelled = item.status === 'Cancelled';
-        const open      = item.status === 'Pending' || item.status === 'Active' || item.status === 'Stopping';
+        const open      = item.status === 'Pending' || item.status === 'Active' || item.status === 'Stopping' || item.status === 'Paused';
         const duration  = item.startedAt ? secondsBetween(item.startedAt, item.endedAt ? new Date(item.endedAt).getTime() : Date.now()) : 0;
         return (
           <Card style={styles.card}>
@@ -70,6 +70,7 @@ export default function HistoryScreen({ route }: Props) {
                 <Text style={styles.muted}>
                   {item.initiatedBy === 'App' ? t('history.byApp') : t('history.byCharger')}
                   {open ? ` · ${t('history.inProgress')}` : cancelled ? ` · ${t('history.cancelled')}` : ` · ${formatDurationShort(duration)}`}
+                  {item.stopReason === 'PowerLoss' ? ` · ${t('history.powerLoss')}` : ''}
                 </Text>
               </View>
               {!cancelled && <Text style={styles.energy}>{kwh(item.energyKwh)} {t('units.kwh')}</Text>}

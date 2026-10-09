@@ -65,6 +65,10 @@ const en = {
     stopFailedTimeout:  'The charger did not respond. Try again.',
     lostTitle:          'Connection to the charger lost',
     lostText:           'The charger went offline (e.g. a power cut). The session stays open; when the charger is back it reports the final result.',
+    pausedTitle:        'Paused — charger has no power',
+    pausedText:         'When the charger is back, charging continues automatically if the car is still plugged in.',
+    resumingTitle:      'Resuming charging…',
+    resumingText:       'The charger is back. Restarting charging in the same session.',
     doneTitle:          'Charging finished',
     doneText:           '{{energy}} kWh in {{duration}}',
   },
@@ -82,6 +86,7 @@ const en = {
     byCharger:  'At the charger',
     cancelled:  'Did not start',
     inProgress: 'In progress',
+    powerLoss:  'power cut',
   },
   profile: {
     title:         'Profile',

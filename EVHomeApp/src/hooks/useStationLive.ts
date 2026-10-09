@@ -78,7 +78,10 @@ export function useStationLive(stationId: number) {
       lastStatusAt:    new Date().toISOString(),
     })),
 
+    // Also fires when a Paused session resumes (same session id, new transaction).
     onSessionStarted: () => { loadSession().catch(() => {}); },
+
+    onSessionPaused: m => setSession(s => (s && s.id === m.sessionId ? { ...s, status: 'Paused', currentPowerKw: 0 } : s)),
 
     onSessionStartFailed: m => {
       if (sessionRef.current && sessionRef.current.id !== m.sessionId) return;
@@ -96,7 +99,7 @@ export function useStationLive(stationId: number) {
 
     onSessionFinalized: m => {
       const cur = sessionRef.current;
-      setFinished({
+      setFinished(prev => prev?.sessionId === m.sessionId ? prev : {   // stop() may have set it already
         sessionId:   m.sessionId,
         energyKwh:   m.energyKwh,
         durationSec: cur ? secondsBetween(cur.startedAt ?? cur.createdAt) : 0,
@@ -147,7 +150,14 @@ export function useStationLive(stationId: number) {
     setBusy(true);
     try {
       const { data } = await stationsApi.stop(stationId);
-      setSession(data);
+      if (data.status === 'Completed') {
+        // Paused session ended on the server (nothing was charging) — no charger round-trip.
+        setFinished({ sessionId: data.id, energyKwh: data.energyKwh, durationSec: secondsBetween(data.startedAt ?? data.createdAt) });
+        setSession(null);
+        setPower([]);
+      } else {
+        setSession(data);
+      }
     } catch (e) {
       setFailure({ kind: 'stop', reason: 'Request', message: apiErrorMessage(e, '') });
       reload();

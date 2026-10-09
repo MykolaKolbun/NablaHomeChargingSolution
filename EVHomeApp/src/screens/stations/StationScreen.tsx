@@ -62,7 +62,7 @@ export default function StationScreen({ route, navigation }: Props) {
   }, [navigation, station?.name, name, stationId, colors, t, devMode.enabled, isOwner, styles]);
 
   // 1 s re-render for the live timer while a session runs.
-  const running = session?.status === 'Active' || session?.status === 'Stopping';
+  const running = session?.status === 'Active' || session?.status === 'Stopping' || session?.status === 'Paused';
   useEffect(() => {
     if (!running) return;
     const id = setInterval(() => tick(n => n + 1), 1000);
@@ -87,11 +87,15 @@ export default function StationScreen({ route, navigation }: Props) {
   const showSoc = live.power.some(p => p.soc != null) || session?.soc != null;
   // Session still open on the server but the charger dropped off (e.g. power cut on the grid side):
   // last values are stale and a stop command could not reach the charger.
-  const lost = running && !station.isOnline;
+  // Paused: the server knows the charger lost power and resumes on its own (stop still allowed —
+  // it just closes the session). `lost` covers the ~2 min before the server notices.
+  const paused = session?.status === 'Paused';
+  const lost   = running && !paused && !station.isOnline;
+  const stale  = lost || paused;
 
   const stats: { icon: IoniconName; tint: string; color: string; value: string; label: string; muted?: boolean }[] = [
     { icon: 'flash',          tint: colors.tintGreen,  color: colors.primary, value: `${kwh(session?.energyKwh)} ${t('units.kwh')}`, label: t('station.energy') },
-    { icon: 'speedometer',    tint: colors.tintBlue,   color: '#60A5FA',      value: lost ? '—' : `${kw(session?.currentPowerKw)} ${t('units.kw')}`, label: t('station.power'), muted: lost },
+    { icon: 'speedometer',    tint: colors.tintBlue,   color: '#60A5FA',      value: stale ? '—' : `${kw(session?.currentPowerKw)} ${t('units.kw')}`, label: t('station.power'), muted: stale },
     { icon: 'battery-half',   tint: colors.tintPurple, color: '#A78BFA',      value: session?.soc != null ? `${Math.round(session.soc)}%` : '—', label: t('station.soc'), muted: session?.soc == null },
   ];
 
@@ -142,7 +146,12 @@ export default function StationScreen({ route, navigation }: Props) {
               <Banner icon="cloud-offline-outline" color={colors.inUse} styles={styles}
                 title={t('station.lostTitle')} text={t('station.lostText')} />
             )}
-            <Text style={[styles.timer, lost && { color: colors.textMuted }]}>{formatTimer(elapsed)}</Text>
+            {paused && (station.isOnline
+              ? <Banner icon="refresh-circle-outline" color={colors.primary} styles={styles}
+                  title={t('station.resumingTitle')} text={t('station.resumingText')} />
+              : <Banner icon="pause-circle-outline" color={colors.inUse} styles={styles}
+                  title={t('station.pausedTitle')} text={t('station.pausedText')} />)}
+            <Text style={[styles.timer, stale && { color: colors.textMuted }]}>{formatTimer(elapsed)}</Text>
             <Text style={styles.timerLabel}>{t('station.duration')}</Text>
             {session.initiatedBy === 'Charger' && <Text style={styles.origin}>{t('station.startedAtCharger')}</Text>}
 
