@@ -31,9 +31,29 @@ export interface StationListener {
 
 type Entry = { listeners: Set<StationListener> };
 
+export interface DebugEvent { at: number; name: string; payload: unknown }
+const DEBUG_LOG_SIZE = 100;
+
 class StationHub {
   private connection: signalR.HubConnection | null = null;
   private stations = new Map<number, Entry>();
+
+  // ── Developer screen: ring buffer of everything received ────────────────────
+  private debugLog: DebugEvent[] = [];
+  private debugListeners = new Set<() => void>();
+
+  /** Newest first, at most DEBUG_LOG_SIZE entries. */
+  getDebugLog(): DebugEvent[] { return this.debugLog; }
+  clearDebugLog() { this.debugLog = []; this.debugListeners.forEach(fn => fn()); }
+  onDebugLog(fn: () => void): () => void {
+    this.debugListeners.add(fn);
+    return () => { this.debugListeners.delete(fn); };
+  }
+
+  private log(name: string, payload: unknown) {
+    this.debugLog = [{ at: Date.now(), name, payload }, ...this.debugLog].slice(0, DEBUG_LOG_SIZE);
+    this.debugListeners.forEach(fn => fn());
+  }
 
   get isConnected(): boolean {
     return this.connection?.state === signalR.HubConnectionState.Connected;
@@ -50,23 +70,27 @@ class StationHub {
       .configureLogging(signalR.LogLevel.Warning)
       .build();
 
-    const forward = <T extends { stationId: number }>(pick: (l: StationListener) => ((m: T) => void) | undefined) =>
-      (m: T) => this.stations.get(m.stationId)?.listeners.forEach(l => pick(l)?.(m));
+    const forward = <T extends { stationId: number }>(name: string, pick: (l: StationListener) => ((m: T) => void) | undefined) =>
+      (m: T) => {
+        this.log(name, m);
+        this.stations.get(m.stationId)?.listeners.forEach(l => pick(l)?.(m));
+      };
 
-    conn.on('StatusUpdated',      forward<StatusUpdatedMsg>(l => l.onStatus));
-    conn.on('SessionStarted',     forward<SessionStartedMsg>(l => l.onSessionStarted));
-    conn.on('SessionStartFailed', forward<SessionStartFailedMsg>(l => l.onSessionStartFailed));
-    conn.on('MeterUpdated',       forward<MeterUpdatedMsg>(l => l.onMeter));
-    conn.on('SessionFinalized',   forward<SessionFinalizedMsg>(l => l.onSessionFinalized));
-    conn.on('SessionStopFailed',  forward<SessionStopFailedMsg>(l => l.onSessionStopFailed));
-    conn.on('ChargingLimitUpdated', forward<ChargingLimitUpdatedMsg>(l => l.onLimitUpdated));
+    conn.on('StatusUpdated',        forward<StatusUpdatedMsg>('StatusUpdated', l => l.onStatus));
+    conn.on('SessionStarted',       forward<SessionStartedMsg>('SessionStarted', l => l.onSessionStarted));
+    conn.on('SessionStartFailed',   forward<SessionStartFailedMsg>('SessionStartFailed', l => l.onSessionStartFailed));
+    conn.on('MeterUpdated',         forward<MeterUpdatedMsg>('MeterUpdated', l => l.onMeter));
+    conn.on('SessionFinalized',     forward<SessionFinalizedMsg>('SessionFinalized', l => l.onSessionFinalized));
+    conn.on('SessionStopFailed',    forward<SessionStopFailedMsg>('SessionStopFailed', l => l.onSessionStopFailed));
+    conn.on('ChargingLimitUpdated', forward<ChargingLimitUpdatedMsg>('ChargingLimitUpdated', l => l.onLimitUpdated));
 
-    conn.onreconnecting(() => this.broadcast(l => l.onConnectionChange?.(false)));
+    conn.onreconnecting(() => { this.log('hub:reconnecting', null); this.broadcast(l => l.onConnectionChange?.(false)); });
     conn.onreconnected(async () => {
+      this.log('hub:reconnected', null);
       await this.rejoinAll();
       this.broadcast(l => { l.onConnectionChange?.(true); l.onReconnected?.(); });
     });
-    conn.onclose(() => this.broadcast(l => l.onConnectionChange?.(false)));
+    conn.onclose(() => { this.log('hub:closed', null); this.broadcast(l => l.onConnectionChange?.(false)); });
 
     this.connection = conn;
     await this.connectWithRetry(conn);

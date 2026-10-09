@@ -17,6 +17,7 @@ import StationsScreen from '../screens/stations/StationsScreen';
 import StationScreen from '../screens/stations/StationScreen';
 import ClaimStationScreen from '../screens/stations/ClaimStationScreen';
 import HistoryScreen from '../screens/stations/HistoryScreen';
+import DevScreen from '../screens/stations/DevScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import type { AuthStackParamList, MainTabParamList, StationsStackParamList } from '../types';
 
@@ -45,6 +46,7 @@ function StationsNavigator() {
       <StationsStack.Screen name="Station"      component={StationScreen}      options={({ route }) => ({ title: route.params.name })} />
       <StationsStack.Screen name="ClaimStation" component={ClaimStationScreen} options={{ title: t('claim.title') }} />
       <StationsStack.Screen name="History"      component={HistoryScreen}      options={{ title: t('station.history') }} />
+      <StationsStack.Screen name="Dev"          component={DevScreen}          options={({ route }) => ({ title: `Developer · ${route.params.name}` })} />
     </StationsStack.Navigator>
   );
 }

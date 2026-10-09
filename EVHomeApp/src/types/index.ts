@@ -18,7 +18,7 @@ export interface Station {
   connectorStatus: ConnectorStatus | string | null;
   lastStatusAt:    string | null;
   maxCurrentA:     number;
-  currentLimitA:   number | null;   // null = no limit
+  currentLimitA:   number | null;   // null = at maxCurrentA (never unlimited)
   limitStatus:     LimitStatus | null;
 }
 
@@ -68,6 +68,7 @@ export type StationsStackParamList = {
   Station:      { stationId: number; name: string };
   ClaimStation: undefined;
   History:      { stationId: number; name: string };
+  Dev:          { stationId: number; name: string };
 };
 
 export type MainTabParamList = {

@@ -19,6 +19,7 @@ import ConfirmSheet from '../../components/ui/ConfirmSheet';
 import PowerChart from '../../components/domain/PowerChart';
 import StatusBadge from '../../components/domain/StatusBadge';
 import LimitCard from '../../components/domain/LimitCard';
+import { useDevMode } from '../../context/DevModeContext';
 import { formatDurationShort, formatTimer, kw, kwh, secondsBetween } from '../../utils/format';
 import type { AppColors } from '../../theme';
 import type { StationsStackParamList } from '../../types';
@@ -38,16 +39,27 @@ export default function StationScreen({ route, navigation }: Props) {
   const [refreshing, setRefreshing]   = useState(false);
   const [, tick] = useState(0);
 
+  const devMode = useDevMode();
+  const isOwner = station?.role === 'Owner';
+
   useLayoutEffect(() => {
+    const title = station?.name ?? name;
     navigation.setOptions({
-      title: station?.name ?? name,
+      title,
       headerRight: () => (
-        <TouchableOpacity onPress={() => navigation.navigate('History', { stationId, name: station?.name ?? name })} accessibilityLabel={t('station.history')}>
-          <Ionicons name="time-outline" size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
+        <View style={styles.headerIcons}>
+          {devMode.enabled && isOwner && (
+            <TouchableOpacity onPress={() => navigation.navigate('Dev', { stationId, name: title })} accessibilityLabel="Developer">
+              <Ionicons name="construct-outline" size={21} color={colors.textPrimary} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={() => navigation.navigate('History', { stationId, name: title })} accessibilityLabel={t('station.history')}>
+            <Ionicons name="time-outline" size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
       ),
     });
-  }, [navigation, station?.name, name, stationId, colors, t]);
+  }, [navigation, station?.name, name, stationId, colors, t, devMode.enabled, isOwner, styles]);
 
   // 1 s re-render for the live timer while a session runs.
   const running = session?.status === 'Active' || session?.status === 'Stopping';
@@ -216,6 +228,7 @@ function FailureBanner({ failure, onClose, styles, colors }: { failure: Failure;
 function makeStyles(c: AppColors) {
   return StyleSheet.create({
     container:  { flex: 1, backgroundColor: c.bgPrimary },
+    headerIcons: { flexDirection: 'row', alignItems: 'center', gap: 18 },
     content:    { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40, alignItems: 'center' },
     center:     { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, backgroundColor: c.bgPrimary },
     retry:      { marginTop: 16, paddingHorizontal: 24 },

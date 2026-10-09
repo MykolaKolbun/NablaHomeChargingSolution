@@ -8,6 +8,7 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useTheme } from '../../context/ThemeContext';
 import { SUPPORTED_LANGUAGES } from '../../i18n';
 import Card from '../../components/ui/Card';
+import { useDevMode } from '../../context/DevModeContext';
 import ConfirmSheet from '../../components/ui/ConfirmSheet';
 import type { AppColors } from '../../theme';
 
@@ -16,6 +17,15 @@ export default function ProfileScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const { language, setLanguage } = useLanguage();
   const { name, email, logout } = useAuth();
+  const devMode = useDevMode();
+  const [devHint, setDevHint] = useState<string | null>(null);
+
+  const onVersionTap = () => {
+    if (!devMode.available) return;
+    const left = devMode.registerTap();
+    if (left === 0) setDevHint(devMode.enabled ? 'Developer mode off' : 'Developer mode on — 🔧 on the charger screen');
+    else if (left <= 3) setDevHint(`${left} more…`);
+  };
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [confirmLogout, setConfirmLogout] = useState(false);
 
@@ -54,7 +64,14 @@ export default function ProfileScreen() {
         <Text style={styles.logoutText}>{t('profile.logout')}</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>{t('profile.version', { version: Constants.expoConfig?.version ?? '' })}</Text>
+      {/* 7 taps toggle the hidden developer screen (only in builds with extra.devTools) */}
+      <TouchableOpacity activeOpacity={1} onPress={onVersionTap}>
+        <Text style={styles.version}>
+          {t('profile.version', { version: Constants.expoConfig?.version ?? '' })}
+          {devMode.enabled ? '  ·  developer' : ''}
+        </Text>
+        {devHint ? <Text style={styles.devHint}>{devHint}</Text> : null}
+      </TouchableOpacity>
 
       <ConfirmSheet
         visible={confirmLogout}
@@ -88,5 +105,6 @@ function makeStyles(c: AppColors) {
     logout:       { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: c.stopBg, borderWidth: 1, borderColor: c.stopBorder, borderRadius: 16, paddingVertical: 16, marginTop: 8 },
     logoutText:   { color: c.stopText, fontSize: 16, fontWeight: '700' },
     version:      { textAlign: 'center', fontSize: 12, color: c.textMuted, marginTop: 24 },
+    devHint:      { textAlign: 'center', fontSize: 12, color: c.primary, marginTop: 6 },
   });
 }

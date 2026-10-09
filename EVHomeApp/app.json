@@ -37,7 +37,8 @@
       ]
     ],
     "extra": {
-      "apiBaseUrl": "https://home-api.alternatiview.com.ua"
+      "apiBaseUrl": "https://home-api.alternatiview.com.ua",
+      "devTools": true
     }
   }
 }

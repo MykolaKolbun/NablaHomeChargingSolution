@@ -72,6 +72,24 @@ export const stationsApi = {
   history:     (id: number, limit = 50)             => api.get<Session[]>(`/stations/${id}/sessions`, { params: { limit } }),
 };
 
+/** Developer screen (EVHomeAPI DevTools; owner only, 404 when disabled on the server). */
+export interface DevCallResult { action: string; status: string; result: unknown; elapsedMs: number }
+
+export const devApi = {
+  /** Never throws for charger-side outcomes: a 504 timeout is returned as a result too. */
+  call: async (stationId: number, action: string, payload?: object): Promise<DevCallResult> => {
+    try {
+      const { data } = await api.post<DevCallResult>(`/stations/${stationId}/dev/call`, { action, payload }, { timeout: 45000 });
+      return data;
+    } catch (e) {
+      const res = (e as AxiosError<DevCallResult>).response;
+      if (res?.status === 504 && res.data) return res.data;
+      throw e;
+    }
+  },
+  charger: (stationId: number) => api.get<unknown>(`/stations/${stationId}/dev/charger`),
+};
+
 export const sessionsApi = {
   get:          (id: number) => api.get<Session>(`/sessions/${id}`),
   meterHistory: (id: number) => api.get<MeterPoint[]>(`/sessions/${id}/meter-history`),
