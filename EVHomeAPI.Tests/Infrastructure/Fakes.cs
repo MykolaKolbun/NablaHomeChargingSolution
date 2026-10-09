@@ -16,6 +16,7 @@ public sealed class FakeCommandPublisher : IOcppCommandPublisher
     public Task RequestStatusAsync(StatusRequestCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task SetChargingLimitAsync(ChargingLimitCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task ClearChargingLimitAsync(ChargingClearCommand cmd, CancellationToken ct = default) => Record(cmd);
+    public Task DevCallAsync(DevCallCommand cmd, CancellationToken ct = default) => Record(cmd);
 
     private Task Record(object cmd)
     {
@@ -43,6 +44,22 @@ public sealed class FakeNotifier : INotifier
     private Task Record(object m) { Sent.Enqueue(m); return Task.CompletedTask; }
 
     public IEnumerable<T> Of<T>() => Sent.OfType<T>();
+}
+
+/// <summary>Stands in for EVOCPP's REST API (dev charger-info proxy).</summary>
+public sealed class FakeEvocppHandler : HttpMessageHandler
+{
+    public string? LastPath { get; private set; }
+    public string  Body     { get; set; } = "{\"ocppId\":\"30011\",\"firmwareVersion\":\"6.7.38\"}";
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        LastPath = request.RequestUri!.AbsolutePath;
+        return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new StringContent(Body, System.Text.Encoding.UTF8, "application/json"),
+        });
+    }
 }
 
 /// <summary>Manually advanced clock.</summary>

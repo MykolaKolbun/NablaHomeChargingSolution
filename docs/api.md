@@ -76,6 +76,18 @@ Charger start (button / RFID / LOCAL):     Active (owner) ───────�
 with no answer from EVOCPP for 3 min is resolved by the watchdog (`Timeout`).
 One open session per station is enforced by a unique filtered index.
 
+## Developer tools (owner only; 404 unless `DevTools:Enabled`)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST 🔒 | `/api/stations/{id}/dev/call` | `{action, payload?}` | `200 {action, status, result, elapsedMs}` · `400` action not allowed · `504` no answer within `DevTools:CallTimeoutSeconds` |
+| GET 🔒 | `/api/stations/{id}/dev/charger` | — | EVOCPP's raw plug JSON (firmware, meterType, protocol, last heartbeat…) |
+
+`action` ∈ `GetConfiguration`, `ChangeConfiguration`, `TriggerMessage`, `DataTransfer`, `Reset`, `UnlockConnector`,
+`ClearCache`, `GetCompositeSchedule`, `GetLocalListVersion` — `payload` is the OCPP 1.6 request body as is.
+`status`: `Ok` (charger answered; `result` = its raw CALLRESULT payload), `Invalid`, `NotConnected`, `NotSupported`,
+`Timeout`, `Error`. Routed via EVOCPP `command.dev.call` / `charger.dev.call.response`.
+
 ## SignalR — `/hubs/charger`
 
 JWT via `?access_token=<token>`. After connecting call `JoinStation(stationId)` (fails with

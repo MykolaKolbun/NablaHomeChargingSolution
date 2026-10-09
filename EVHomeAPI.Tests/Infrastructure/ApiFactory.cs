@@ -27,6 +27,10 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     public ApiFactory(int claimPerMinute = 1000) => _claimPerMinute = claimPerMinute;
 
+    /// <summary>Dev tools on by default in tests; CallTimeoutSeconds short so timeout tests are fast.</summary>
+    public DevToolsOptions   DevTools { get; } = new() { Enabled = true, CallTimeoutSeconds = 2, EvocppBaseUrl = "http://evocpp.test" };
+    public FakeEvocppHandler Evocpp   { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -56,6 +60,8 @@ public class ApiFactory : WebApplicationFactory<Program>
             Replace<IOcppCommandPublisher>(services, Commands);
             Replace<INotifier>(services, Notifier);
             Replace<TimeProvider>(services, Clock);
+            Replace<DevToolsOptions>(services, DevTools);
+            services.AddHttpClient("evocpp").ConfigurePrimaryHttpMessageHandler(() => Evocpp);
         });
     }
 

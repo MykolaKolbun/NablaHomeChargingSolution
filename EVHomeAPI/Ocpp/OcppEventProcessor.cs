@@ -20,6 +20,7 @@ public class OcppEventProcessor(
     AppDbContext db,
     INotifier notifier,
     IOcppCommandPublisher commands,
+    DevCallRegistry devCalls,
     TimeProvider clock,
     ILogger<OcppEventProcessor> logger)
 {
@@ -42,6 +43,7 @@ public class OcppEventProcessor(
             case OcppRoutingKeys.RemoteStartResponse: await OnRemoteStartResponse(Parse<RemoteStartResponseEvent>(json), ct); break;
             case OcppRoutingKeys.RemoteStopResponse:  await OnRemoteStopResponse(Parse<RemoteStopResponseEvent>(json), ct); break;
             case OcppRoutingKeys.ChargingLimitResponse: await OnChargingLimitResponse(Parse<ChargingLimitResponseEvent>(json), ct); break;
+            case OcppRoutingKeys.DevCallResponse:       devCalls.Complete(Parse<DevCallResponseEvent>(json)); break;
             default: logger.LogDebug("Ignoring event {RoutingKey}", routingKey); break;
         }
     }

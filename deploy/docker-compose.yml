@@ -112,6 +112,10 @@ services:
       - RabbitMQ__Username=nablahome
       - RabbitMQ__Password=${HOME_RABBITMQ_PASSWORD}
       - RabbitMQ__VirtualHost=/home
+      # Developer screen endpoints (/api/stations/{id}/dev/*) — on while chargers are being
+      # brought up; set to false to remove them from the API.
+      - DevTools__Enabled=true
+      - DevTools__EvocppBaseUrl=http://evocpp:8080
     depends_on:
       db:
         condition: service_healthy

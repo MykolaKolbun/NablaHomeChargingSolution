@@ -41,6 +41,16 @@ builder.Services.AddSingleton<RabbitMqConnection>();
 builder.Services.AddSingleton<IOcppCommandPublisher, RabbitMqCommandPublisher>();
 builder.Services.AddSingleton<INotifier, SignalRNotifier>();
 builder.Services.AddScoped<OcppEventProcessor>();
+
+// ── Developer tooling (/api/stations/{id}/dev/*, off unless DevTools:Enabled) ──
+var devTools = config.GetSection(DevToolsOptions.Section).Get<DevToolsOptions>() ?? new DevToolsOptions();
+builder.Services.AddSingleton(devTools);
+builder.Services.AddSingleton<DevCallRegistry>();
+builder.Services.AddHttpClient("evocpp", c =>
+{
+    c.BaseAddress = new Uri(devTools.EvocppBaseUrl);
+    c.Timeout     = TimeSpan.FromSeconds(10);
+});
 builder.Services.AddHostedService<OcppEventConsumer>();
 builder.Services.AddHostedService<StaleSessionWatchdog>();
 

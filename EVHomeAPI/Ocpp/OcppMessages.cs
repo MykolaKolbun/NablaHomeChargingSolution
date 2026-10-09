@@ -37,6 +37,7 @@ public static class OcppRoutingKeys
     public const string RemoteStartResponse = "charger.remote.start.response";
     public const string RemoteStopResponse  = "charger.remote.stop.response";
     public const string ChargingLimitResponse = "charger.charging.limit.response";
+    public const string DevCallResponse       = "charger.dev.call.response";
 
     public const string RemoteStart       = "command.remote.start";
     public const string RemoteStop        = "command.remote.stop";
@@ -44,6 +45,7 @@ public static class OcppRoutingKeys
     public const string StatusRequest     = "command.statusreq";
     public const string ChargingLimit     = "command.charging.limit";
     public const string ChargingClear     = "command.charging.clear";
+    public const string DevCall           = "command.dev.call";
 }
 
 // ── Commands: EVHomeAPI → EVOCPP (PascalCase on the wire) ─────────────────────
