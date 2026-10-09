@@ -63,6 +63,8 @@ const en = {
     stopFailedTitle:    'Charging did not stop',
     stopFailedRejected: 'The charger refused to stop. Try again or stop it on the car.',
     stopFailedTimeout:  'The charger did not respond. Try again.',
+    lostTitle:          'Connection to the charger lost',
+    lostText:           'The charger went offline (e.g. a power cut). The session stays open; when the charger is back it reports the final result.',
     doneTitle:          'Charging finished',
     doneText:           '{{energy}} kWh in {{duration}}',
   },

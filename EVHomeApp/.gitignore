@@ -6,3 +6,4 @@ android/
 ios/
 *.apk
 *.aab
+build/

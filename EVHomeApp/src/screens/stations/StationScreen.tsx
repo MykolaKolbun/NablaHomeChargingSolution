@@ -73,10 +73,13 @@ export default function StationScreen({ route, navigation }: Props) {
 
   const elapsed = secondsBetween(session?.startedAt ?? session?.createdAt);
   const showSoc = live.power.some(p => p.soc != null) || session?.soc != null;
+  // Session still open on the server but the charger dropped off (e.g. power cut on the grid side):
+  // last values are stale and a stop command could not reach the charger.
+  const lost = running && !station.isOnline;
 
   const stats: { icon: IoniconName; tint: string; color: string; value: string; label: string; muted?: boolean }[] = [
     { icon: 'flash',          tint: colors.tintGreen,  color: colors.primary, value: `${kwh(session?.energyKwh)} ${t('units.kwh')}`, label: t('station.energy') },
-    { icon: 'speedometer',    tint: colors.tintBlue,   color: '#60A5FA',      value: `${kw(session?.currentPowerKw)} ${t('units.kw')}`, label: t('station.power') },
+    { icon: 'speedometer',    tint: colors.tintBlue,   color: '#60A5FA',      value: lost ? '—' : `${kw(session?.currentPowerKw)} ${t('units.kw')}`, label: t('station.power'), muted: lost },
     { icon: 'battery-half',   tint: colors.tintPurple, color: '#A78BFA',      value: session?.soc != null ? `${Math.round(session.soc)}%` : '—', label: t('station.soc'), muted: session?.soc == null },
   ];
 
@@ -123,7 +126,11 @@ export default function StationScreen({ route, navigation }: Props) {
         {/* ── Charging ── */}
         {running && session && (
           <>
-            <Text style={styles.timer}>{formatTimer(elapsed)}</Text>
+            {lost && (
+              <Banner icon="cloud-offline-outline" color={colors.inUse} styles={styles}
+                title={t('station.lostTitle')} text={t('station.lostText')} />
+            )}
+            <Text style={[styles.timer, lost && { color: colors.textMuted }]}>{formatTimer(elapsed)}</Text>
             <Text style={styles.timerLabel}>{t('station.duration')}</Text>
             {session.initiatedBy === 'Charger' && <Text style={styles.origin}>{t('station.startedAtCharger')}</Text>}
 
@@ -145,9 +152,9 @@ export default function StationScreen({ route, navigation }: Props) {
             </View>
 
             <TouchableOpacity
-              style={[styles.stopBtn, (live.busy || session.status === 'Stopping') && styles.stopBtnDisabled]}
+              style={[styles.stopBtn, (live.busy || lost || session.status === 'Stopping') && styles.stopBtnDisabled]}
               onPress={() => setConfirmStop(true)}
-              disabled={live.busy || session.status === 'Stopping'}
+              disabled={live.busy || lost || session.status === 'Stopping'}
               activeOpacity={0.85}
             >
               {session.status === 'Stopping'
@@ -181,7 +188,7 @@ export default function StationScreen({ route, navigation }: Props) {
 type Styles = ReturnType<typeof makeStyles>;
 
 function Banner({ icon, color, title, text, onClose, styles }: {
-  icon: IoniconName; color: string; title: string; text: string; onClose: () => void; styles: Styles;
+  icon: IoniconName; color: string; title: string; text: string; onClose?: () => void; styles: Styles;
 }) {
   return (
     <View style={[styles.banner, { borderColor: color }]}>
@@ -190,7 +197,7 @@ function Banner({ icon, color, title, text, onClose, styles }: {
         <Text style={styles.bannerTitle}>{title}</Text>
         <Text style={styles.bannerText}>{text}</Text>
       </View>
-      <TouchableOpacity onPress={onClose} hitSlop={12}><Ionicons name="close" size={18} color={color} /></TouchableOpacity>
+      {onClose && <TouchableOpacity onPress={onClose} hitSlop={12}><Ionicons name="close" size={18} color={color} /></TouchableOpacity>}
     </View>
   );
 }
