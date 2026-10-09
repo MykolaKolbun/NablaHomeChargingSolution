@@ -56,3 +56,13 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 - **Reference implementation here:** `EVHomeApp` — destructive = `stopBg` fill + `stopBorder` border + `stopText`;
   light `stopText` → `#B91C1C`. Contrast: light 5.30:1, dark 8.40:1.
 - **Found:** 2026-10-09, first device test of EVHomeApp.
+
+## CB-006 · RemoteStart timeout is never published
+- **Target:** `OCPP_RD/OCPPServer/OcppCommandHandler.cs` (`command.remote.start`, `catch (OperationCanceledException)`)
+- **Status:** idea
+- **Why:** when the charger accepts RemoteStartTransaction but no StartTransaction arrives within
+  `Ocpp:TransactionConfirmTimeoutSeconds`, only a warning is logged — `charger.remote.start.response`
+  with `Timeout` (promised by messaging-api-spec §3.6) is never sent. RemoteStop does publish its Timeout.
+  The API keeps the session Pending until its own watchdog fires.
+- **Reference implementation here:** EVOCPP — publish `Timeout` in the catch block.
+- **Found:** 2026-10-09, while adding charging-limit commands.

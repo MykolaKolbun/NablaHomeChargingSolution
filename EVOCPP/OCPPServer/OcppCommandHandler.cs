@@ -83,6 +83,9 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                             _tracer.Warning("RemoteStart",
                                 $"{cmd.OcppId} — StartTransaction not received within {_txConfirmTimeout.TotalSeconds:F0}s",
                                 chargePointId: cmd.OcppId);
+                            // Spec §3.6: Timeout must be published (RemoteStop already did) — otherwise the
+                            // backend only learns about the failed start from its own watchdog.
+                            await RabbitMqPublisher.PublishRemoteStartResponseAsync(cmd.OcppId, "Timeout", cmd.ConnectorId, cmd.IdTag, cmd.TrackingId);
                         }
                     }
                     else
