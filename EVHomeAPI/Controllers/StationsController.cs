@@ -16,6 +16,7 @@ namespace EVHomeAPI.Controllers;
 public class StationsController(
     AppDbContext db,
     IOcppCommandPublisher commands,
+    ChargingLimitService limits,
     TimeProvider clock,
     ILogger<StationsController> logger) : ControllerBase
 {
@@ -72,6 +73,9 @@ public class StationsController(
         }
 
         await commands.TryRequestStatusAsync(station.OcppId, logger);   // fresh online/connector state for the new owner
+        // Cap the charger at the installation maximum from the first minute (best effort:
+        // the charger may be offline; EVOCPP discards the command then and LimitStatus stays Pending).
+        await limits.ApplyAsync(station);
         return Ok(StationDto.From(station, StationRole.Owner));
     }
 
@@ -164,9 +168,10 @@ public class StationsController(
     }
 
     /// <summary>
-    /// Set (6…MaxCurrentA A) or remove (null) the charging current limit. Owner only.
-    /// Applied to future sessions and, if one is running, to it immediately. Returns 202;
-    /// the charger's answer arrives over SignalR (ChargingLimitUpdated) and in LimitStatus.
+    /// Set the charging current limit: 6…MaxCurrentA A, or null = at the installation maximum
+    /// (never "unlimited" — see ChargingLimitService). Owner only. Applied to future sessions
+    /// and to a running one immediately. Returns 202; the charger's answer arrives over SignalR
+    /// (ChargingLimitUpdated) and in LimitStatus.
     /// </summary>
     [HttpPut("{id:int}/limit")]
     public async Task<ActionResult<StationDto>> SetLimit(int id, SetLimitRequest req)
@@ -180,30 +185,9 @@ public class StationsController(
             return BadRequest($"Limit must be between 6 and {station.MaxCurrentA} A.");
         if (!station.IsOnline) return Conflict("Station is offline.");
 
-        var runningTx = await db.Sessions
-            .Where(s => s.StationId == id && (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
-            .Select(s => s.OcppTransactionId)
-            .FirstOrDefaultAsync();
-
-        station.CurrentLimitA  = limit;
-        station.LimitStatus    = "Pending";
-        station.LimitUpdatedAt = Now;
-        await db.SaveChangesAsync();
-
-        try
-        {
-            if (limit is null)
-                await commands.ClearChargingLimitAsync(new ChargingClearCommand(station.OcppId));
-            else
-                await commands.SetChargingLimitAsync(new ChargingLimitCommand(station.OcppId, (double)limit.Value, runningTx));
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Charging limit publish failed for station {OcppId}", station.OcppId);
-            station.LimitStatus = "Error";
-            await db.SaveChangesAsync();
+        station.CurrentLimitA = limit;
+        if (!await limits.ApplyAsync(station))
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "Charger gateway unavailable.");
-        }
 
         return Accepted(StationDto.From(station, access.Role));
     }

@@ -21,7 +21,7 @@ public record StationDto(
         s.MaxCurrentA, s.CurrentLimitA, s.LimitStatus);
 }
 
-/// <summary>limitA null = remove the limit. Range 6…MaxCurrentA, step 0.1.</summary>
+/// <summary>limitA null = at the installation maximum (MaxCurrentA), never unlimited. Range 6…MaxCurrentA, step 0.1.</summary>
 public record SetLimitRequest(decimal? LimitA);
 
 public record ClaimStationRequest(
@@ -34,6 +34,8 @@ public record CreateStationRequest(
     [Required, StringLength(64, MinimumLength = 1), RegularExpression("^[A-Za-z0-9_.-]+$")] string OcppId,
     [Required, StringLength(100, MinimumLength = 1)] string Name,
     [Range(6, 80)] int MaxCurrentA = 32);
+
+public record SetMaxCurrentRequest([Range(6, 80)] int MaxCurrentA);
 
 /// <summary>ClaimCode is returned only once; the database keeps just its hash.</summary>
 public record CreateStationResponse(int Id, string OcppId, string Name, string ClaimCode);

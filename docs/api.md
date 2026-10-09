@@ -53,10 +53,11 @@ and already-claimed return the same `400` (no station-ID discovery). Rate limit:
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| PUT 🔒 | `/api/stations/{id}/limit` | `{limitA: number \| null}` | `202 StationDto` (`limitStatus: "Pending"`) · `400` outside 6…`maxCurrentA` · `403` not owner · `409` offline · `503` gateway down |
+| PUT 🔒 | `/api/stations/{id}/limit` | `{limitA: number \| null}` — `null` = at `maxCurrentA` | `202 StationDto` (`limitStatus: "Pending"`) · `400` outside 6…`maxCurrentA` · `403` not owner · `409` offline · `503` gateway down |
 
 `StationDto` adds `maxCurrentA` (installation maximum, set by admin, default 32), `currentLimitA`
-(`null` = no limit) and `limitStatus` (`Pending` → `Applied` | `Rejected` | `NotSupported` | `Timeout` | `Error`).
+(`null` = at the installation maximum — **never unlimited**: the charger default, e.g. 32 A, may exceed the
+house supply; the effective limit is also pushed when the station is claimed) and `limitStatus` (`Pending` → `Applied` | `Rejected` | `NotSupported` | `Timeout` | `Error`).
 EVOCPP sets a `TxDefaultProfile` (all future sessions, stored on the charger) and, if a session is running,
 a `TxProfile` for it. The charger's answer arrives as SignalR `ChargingLimitUpdated {stationId, limitA, status}`;
 answers to a superseded request are ignored.
@@ -108,6 +109,7 @@ Event names and payloads are identical to the commercial Nabla app (`totalCost` 
 | Method | Path | Body | Response |
 |---|---|---|---|
 | POST | `/api/admin/stations` | `{ocppId, name, maxCurrentA?: 32}` | `200 {id, ocppId, name, claimCode}` · `409` exists |
+| PUT | `/api/admin/stations/{ocppId}/max-current` | `{maxCurrentA}` (6–80) | `200 {ocppId, maxCurrentA, currentLimitA, limitStatus, pushed}` — lowers a higher user limit, pushes the effective limit if online |
 | POST | `/api/admin/stations/{ocppId}/claim-code` | — | `200 {…, claimCode}` new code, old one invalid |
 
 The claim code appears **only** in these responses; the database stores a BCrypt hash.

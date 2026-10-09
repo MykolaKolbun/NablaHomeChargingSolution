@@ -91,7 +91,8 @@ const en = {
   },
   limit: {
     title:        'Current limit',
-    none:         'No limit',
+    atMax:        '{{max}} A · maximum',
+    maxChip:      'Max {{max}} A',
     max:          'max {{max}} A',
     pending:      'Sending to the charger…',
     applied:      'Applied by the charger',

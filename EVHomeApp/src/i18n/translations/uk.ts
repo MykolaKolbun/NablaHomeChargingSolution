@@ -93,7 +93,8 @@ const uk: Translation = {
   },
   limit: {
     title:        'Ліміт струму',
-    none:         'Без ліміту',
+    atMax:        '{{max}} А · максимум',
+    maxChip:      'Макс. {{max}} А',
     max:          'макс. {{max}} А',
     pending:      'Надсилаємо на зарядку…',
     applied:      'Зарядка застосувала ліміт',

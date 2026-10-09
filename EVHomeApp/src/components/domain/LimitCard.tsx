@@ -1,6 +1,7 @@
 /**
  * LimitCard — charging current limit (OCPP SetChargingProfile via EVHomeAPI).
- * Preset chips up to the station's maxCurrentA plus "No limit". Owner only.
+ * Preset chips below the station's maxCurrentA plus "Max N A" (= installation maximum,
+ * never unlimited). Owner only.
  * The charger's answer arrives asynchronously (limitStatus Pending → Applied/Rejected/…).
  */
 
@@ -26,7 +27,8 @@ export default function LimitCard({ station, onChange }: Props) {
   const [sending, setSending] = useState<number | 'none' | null>(null);
   const [error, setError]     = useState<string | null>(null);
 
-  const options = PRESETS.filter(a => a <= station.maxCurrentA);
+  // null = at the installation maximum (never unlimited — the charger default may exceed the house supply)
+  const options = PRESETS.filter(a => a < station.maxCurrentA);
   const current = station.currentLimitA;
   const canEdit = station.role === 'Owner' && station.isOnline;
   const pending = station.limitStatus === 'Pending';
@@ -77,8 +79,9 @@ export default function LimitCard({ station, onChange }: Props) {
         <View style={styles.headerText}>
           <Text style={styles.title}>{t('limit.title')}</Text>
           <Text style={styles.value}>
-            {current == null ? t('limit.none') : `${current} ${t('units.a')}`}
-            <Text style={styles.max}>  ·  {t('limit.max', { max: station.maxCurrentA })}</Text>
+            {current == null
+              ? t('limit.atMax', { max: station.maxCurrentA })
+              : <>{`${current} ${t('units.a')}`}<Text style={styles.max}>  ·  {t('limit.max', { max: station.maxCurrentA })}</Text></>}
           </Text>
         </View>
         {pending && <ActivityIndicator size="small" color={colors.inUse} />}
@@ -86,7 +89,7 @@ export default function LimitCard({ station, onChange }: Props) {
 
       <View style={styles.chips}>
         {options.map(a => <Chip key={a} value={a} label={`${a} ${t('units.a')}`} />)}
-        <Chip value={null} label={t('limit.none')} />
+        <Chip value={null} label={t('limit.maxChip', { max: station.maxCurrentA })} />
       </View>
 
       {statusLine && <Text style={[styles.status, { color: statusLine.color }]}>{statusLine.text}</Text>}

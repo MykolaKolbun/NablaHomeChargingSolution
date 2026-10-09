@@ -15,7 +15,7 @@ namespace EVHomeAPI.Controllers;
 [ApiController]
 [AdminKey]
 [Route("api/admin")]
-public class AdminController(AppDbContext db, IOcppCommandPublisher commands, ILogger<AdminController> logger) : ControllerBase
+public class AdminController(AppDbContext db, IOcppCommandPublisher commands, ChargingLimitService limits, ILogger<AdminController> logger) : ControllerBase
 {
     /// <summary>Register a station and get its one-time claim code (shown only in this response).</summary>
     [HttpPost("stations")]
@@ -52,5 +52,24 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, IL
         await db.SaveChangesAsync();
 
         return Ok(new CreateStationResponse(station.Id, station.OcppId, station.Name, code));
+    }
+
+    /// <summary>
+    /// Change the installation maximum (cable / breaker / house supply). A user limit above
+    /// the new maximum is lowered to it. If the station is online the effective limit is
+    /// pushed to the charger right away (also to a running session).
+    /// </summary>
+    [HttpPut("stations/{ocppId}/max-current")]
+    public async Task<ActionResult<object>> SetMaxCurrent(string ocppId, SetMaxCurrentRequest req)
+    {
+        var station = await db.Stations.FirstOrDefaultAsync(s => s.OcppId == ocppId);
+        if (station is null) return NotFound();
+
+        station.MaxCurrentA = req.MaxCurrentA;
+        if (station.CurrentLimitA > req.MaxCurrentA) station.CurrentLimitA = req.MaxCurrentA;
+        await db.SaveChangesAsync();
+
+        var pushed = station.IsOnline && await limits.ApplyAsync(station);
+        return Ok(new { station.OcppId, station.MaxCurrentA, station.CurrentLimitA, station.LimitStatus, pushed });
     }
 }
