@@ -36,7 +36,7 @@ EVHomeApp ──REST/SignalR──► EVHomeAPI ──RabbitMQ (/home)──► 
 6. ✅ (2026-10-08) OCPP integration: event consumer, authorize, sessions without cost, start/stop, SignalR (incl. SoC from MeterValues) — deployed, 37 tests; e2e test on Wallbox Copper SB pending
 7. EVHomeApp MVP: login/register, chargers, live charging screen, claim, history, profile — typecheck + web bundle OK, Login/Register checked in browser; device test pending
 
-Stage 2: charging schedule, availability lock, RFID cards, family members, Wallbox Copper SB onboarding.
+Stage 2: resume after power loss — session `Paused` state, several transactions per session, automatic RemoteStart when the car is still plugged, escalation (DIY: `DataTransfer CpReset` = IEC 61851 PWM pause B1→B2, never state A), user notification; design in [diy-charger-controller.md](diy-charger-controller.md#відновлення-заряду-після-відключення-світла), to be finalized after observing Wallbox + Tesla behaviour; charging schedule, availability lock, RFID cards, family members, Wallbox Copper SB onboarding.
 
 Stage 3: energy management — read Deye inverter (Solarman V5 / Modbus), modes "solar only", "solar + minimum", "fast", "night tariff". Fast load balancing stays on the charger (ESP) and works offline.
 
