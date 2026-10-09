@@ -105,6 +105,8 @@ export function useStationLive(stationId: number) {
       setPower([]);
     },
 
+    onLimitUpdated: m => setStation(s => s && ({ ...s, currentLimitA: m.limitA, limitStatus: m.status })),
+
     onSessionStopFailed: m => {
       setSession(s => (s && s.id === m.sessionId ? { ...s, status: 'Active' } : s));
       setFailure({ kind: 'stop', reason: m.reason });
@@ -154,10 +156,22 @@ export function useStationLive(stationId: number) {
     }
   }, [stationId, reload]);
 
+  /** Set (amps) or remove (null) the current limit. Resolves to an error message or null. */
+  const setLimit = useCallback(async (limitA: number | null): Promise<string | null> => {
+    try {
+      const { data } = await stationsApi.setLimit(stationId, limitA);
+      setStation(data);   // limitStatus = Pending until ChargingLimitUpdated arrives
+      return null;
+    } catch (e) {
+      reload();
+      return apiErrorMessage(e, '');
+    }
+  }, [stationId, reload]);
+
   return {
     station, session, power, loading, loadError, hubConnected, busy,
     failure, clearFailure: () => setFailure(null),
     finished, clearFinished: () => setFinished(null),
-    start, stop, reload,
+    start, stop, reload, setLimit,
   };
 }

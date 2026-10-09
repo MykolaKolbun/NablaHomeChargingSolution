@@ -14,7 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, TOKEN_KEY } from './client';
 import type {
   MeterUpdatedMsg, SessionFinalizedMsg, SessionStartedMsg, SessionStartFailedMsg,
-  SessionStopFailedMsg, StatusUpdatedMsg,
+  SessionStopFailedMsg, StatusUpdatedMsg, ChargingLimitUpdatedMsg,
 } from '../types';
 
 export interface StationListener {
@@ -24,6 +24,7 @@ export interface StationListener {
   onMeter?:            (m: MeterUpdatedMsg) => void;
   onSessionFinalized?: (m: SessionFinalizedMsg) => void;
   onSessionStopFailed?: (m: SessionStopFailedMsg) => void;
+  onLimitUpdated?:     (m: ChargingLimitUpdatedMsg) => void;
   onReconnected?:      () => void;
   onConnectionChange?: (connected: boolean) => void;
 }
@@ -58,6 +59,7 @@ class StationHub {
     conn.on('MeterUpdated',       forward<MeterUpdatedMsg>(l => l.onMeter));
     conn.on('SessionFinalized',   forward<SessionFinalizedMsg>(l => l.onSessionFinalized));
     conn.on('SessionStopFailed',  forward<SessionStopFailedMsg>(l => l.onSessionStopFailed));
+    conn.on('ChargingLimitUpdated', forward<ChargingLimitUpdatedMsg>(l => l.onLimitUpdated));
 
     conn.onreconnecting(() => this.broadcast(l => l.onConnectionChange?.(false)));
     conn.onreconnected(async () => {

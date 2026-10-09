@@ -18,6 +18,7 @@ import Card from '../../components/ui/Card';
 import ConfirmSheet from '../../components/ui/ConfirmSheet';
 import PowerChart from '../../components/domain/PowerChart';
 import StatusBadge from '../../components/domain/StatusBadge';
+import LimitCard from '../../components/domain/LimitCard';
 import { formatDurationShort, formatTimer, kw, kwh, secondsBetween } from '../../utils/format';
 import type { AppColors } from '../../theme';
 import type { StationsStackParamList } from '../../types';
@@ -156,6 +157,9 @@ export default function StationScreen({ route, navigation }: Props) {
             </TouchableOpacity>
           </>
         )}
+
+        {/* ── Current limit (applies to the running session too) ── */}
+        <LimitCard station={station} onChange={live.setLimit} />
       </ScrollView>
 
       <ConfirmSheet

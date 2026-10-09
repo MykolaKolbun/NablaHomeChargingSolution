@@ -89,9 +89,21 @@ const en = {
     logoutConfirm: 'Sign out of Nabla Home?',
     version:       'Version {{version}}',
   },
+  limit: {
+    title:        'Current limit',
+    none:         'No limit',
+    max:          'max {{max}} A',
+    pending:      'Sending to the charger…',
+    applied:      'Applied by the charger',
+    rejected:     'The charger rejected this limit',
+    notSupported: 'This charger does not support current limits',
+    failed:       'The charger did not confirm. Try again.',
+    ownerOnly:    'Only the owner can change the limit.',
+  },
   units: {
     kwh: 'kWh',
     kw:  'kW',
+    a:   'A',
   },
   tabs: {
     home:    'Chargers',

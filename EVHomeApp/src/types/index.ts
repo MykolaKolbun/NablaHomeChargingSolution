@@ -17,7 +17,12 @@ export interface Station {
   isOnline:        boolean;
   connectorStatus: ConnectorStatus | string | null;
   lastStatusAt:    string | null;
+  maxCurrentA:     number;
+  currentLimitA:   number | null;   // null = no limit
+  limitStatus:     LimitStatus | null;
 }
+
+export type LimitStatus = 'Pending' | 'Applied' | 'Rejected' | 'NotSupported' | 'Timeout' | 'Error';
 
 export type SessionStatus = 'Pending' | 'Active' | 'Stopping' | 'Completed' | 'Cancelled';
 
@@ -46,6 +51,7 @@ export interface SessionStartFailedMsg { stationId: number; sessionId: number; r
 export interface MeterUpdatedMsg       { stationId: number; sessionId: number; energyKwh: number; currentPowerKw: number | null; totalCost: null; soc: number | null }
 export interface SessionFinalizedMsg   { stationId: number; sessionId: number; energyKwh: number; totalCost: null; stopReason: string }
 export interface SessionStopFailedMsg  { stationId: number; sessionId: number; reason: 'Rejected' | 'Timeout' }
+export interface ChargingLimitUpdatedMsg { stationId: number; limitA: number | null; status: LimitStatus }
 
 /** One chart sample — same shape PowerChart expects (t = elapsed seconds). */
 export interface PowerPoint { t: number; kw: number; soc: number | null }

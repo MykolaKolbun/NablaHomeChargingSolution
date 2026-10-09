@@ -66,6 +66,7 @@ export const stationsApi = {
   claim:       (ocppId: string, claimCode: string)  => api.post<Station>('/stations/claim', { ocppId, claimCode }),
   start:       (id: number)                         => api.post<Session>(`/stations/${id}/start`, { connectorId: 1 }),
   stop:        (id: number)                         => api.post<Session>(`/stations/${id}/stop`),
+  setLimit:    (id: number, limitA: number | null)  => api.put<Station>(`/stations/${id}/limit`, { limitA }),
   /** 204 (empty body) when idle. */
   openSession: (id: number)                         => api.get<Session | ''>(`/stations/${id}/session`),
   history:     (id: number, limit = 50)             => api.get<Session[]>(`/stations/${id}/sessions`, { params: { limit } }),
