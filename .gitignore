@@ -37,4 +37,4 @@ firmware/**/secrets.h
 firmware/esp32/libraries/
 
 # Firebase client config (kept local; build-apk.ps1 mirrors it into the build)
-EVHomeApp/google-services.json
+google-services.json

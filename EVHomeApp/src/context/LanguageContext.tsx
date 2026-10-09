@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import i18n, { type SupportedLanguage } from '../i18n';
+import { refreshPushLanguage } from '../push/pushNotifications';
 
 const STORAGE_KEY = '@app_language';
 
@@ -30,6 +31,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLanguageState(lang);
     await i18n.changeLanguage(lang);
     await AsyncStorage.setItem(STORAGE_KEY, lang);
+    refreshPushLanguage();
   };
 
   return (

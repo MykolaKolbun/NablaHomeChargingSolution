@@ -94,3 +94,8 @@ export const sessionsApi = {
   get:          (id: number) => api.get<Session>(`/sessions/${id}`),
   meterHistory: (id: number) => api.get<MeterPoint[]>(`/sessions/${id}/meter-history`),
 };
+
+export const devicesApi = {
+  register:   (token: string, platform: string, language: string) => api.post('/devices', { token, platform, language }),
+  unregister: (token: string) => api.post('/devices/unregister', { token }),
+};

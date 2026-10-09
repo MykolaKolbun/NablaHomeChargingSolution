@@ -90,6 +90,9 @@ const uk: Translation = {
     inProgress: 'Триває',
     powerLoss:  'зникло світло',
   },
+  push: {
+    channelName: 'Заряджання',
+  },
   profile: {
     title:         'Профіль',
     darkMode:      'Темна тема',

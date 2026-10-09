@@ -4,12 +4,14 @@
  * Token + user are persisted in AsyncStorage; on startup a saved token restores
  * the session. The SignalR hub is started on login and stopped on logout.
  * A 401 from the API (expired token) logs the user out automatically.
+ * Push: the FCM token is registered after login / restore and unregistered on logout.
  */
 
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authApi, registerUnauthorizedHandler, TOKEN_KEY, USER_KEY } from '../api/client';
 import { stationHub } from '../api/stationHub';
+import { registerForPush, unregisterPush } from '../push/pushNotifications';
 
 interface AuthState {
   ready:           boolean;   // false until the saved token has been checked
@@ -32,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ ...signedOut, ready: false });
 
   const logout = useCallback(async () => {
+    await unregisterPush();   // needs the auth token — before it is removed
     await stationHub.stop();
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
     setState(signedOut);
@@ -46,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const user = userJson ? JSON.parse(userJson) : {};
       setState({ ready: true, isAuthenticated: true, name: user.name ?? null, email: user.email ?? null });
       stationHub.start();
+      registerForPush();
     })();
   }, [logout]);
 
@@ -53,6 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.multiSet([[TOKEN_KEY, token], [USER_KEY, JSON.stringify({ name, email })]]);
     setState({ ready: true, isAuthenticated: true, name, email });
     stationHub.start();
+    registerForPush();
   };
 
   const login = async (email: string, password: string) => {

@@ -88,6 +88,9 @@ const en = {
     inProgress: 'In progress',
     powerLoss:  'power cut',
   },
+  push: {
+    channelName: 'Charging',
+  },
   profile: {
     title:         'Profile',
     darkMode:      'Dark theme',

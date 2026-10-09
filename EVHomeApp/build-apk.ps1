@@ -25,6 +25,11 @@ $ErrorActionPreference = "Continue"
 $root   = $PSScriptRoot
 $outDir = Join-Path $root "build"
 
+# Firebase client config (git-ignored, from Firebase Console) — push notifications need it.
+if (-not (Test-Path (Join-Path $root "google-services.json"))) {
+    throw "EVHomeApp\google-services.json missing — download it from Firebase Console (project nabla-home, Android app ua.alternatiview.nablahome)."
+}
+
 # ── JDK / SDK ─────────────────────────────────────────────────────────────────
 $jdk = @("C:\Program Files\Android\openjdk", "C:\Program Files\Microsoft", "C:\Program Files\Eclipse Adoptium") |
     Where-Object { Test-Path $_ } |
