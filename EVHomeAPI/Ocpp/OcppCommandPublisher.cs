@@ -10,6 +10,8 @@ public interface IOcppCommandPublisher
     Task RemoteStopAsync(RemoteStopCommand cmd, CancellationToken ct = default);
     Task AuthorizeResponseAsync(AuthorizeResponseCommand cmd, CancellationToken ct = default);
     Task RequestStatusAsync(StatusRequestCommand cmd, CancellationToken ct = default);
+    Task SetChargingLimitAsync(ChargingLimitCommand cmd, CancellationToken ct = default);
+    Task ClearChargingLimitAsync(ChargingClearCommand cmd, CancellationToken ct = default);
 }
 
 /// <summary>Publishes commands to EVOCPP via exchange ocpp.commands.</summary>
@@ -30,6 +32,12 @@ public sealed class RabbitMqCommandPublisher(RabbitMqConnection rabbit, ILogger<
 
     public Task RequestStatusAsync(StatusRequestCommand cmd, CancellationToken ct = default) =>
         PublishAsync(OcppRoutingKeys.StatusRequest, cmd, ct);
+
+    public Task SetChargingLimitAsync(ChargingLimitCommand cmd, CancellationToken ct = default) =>
+        PublishAsync(OcppRoutingKeys.ChargingLimit, cmd, ct);
+
+    public Task ClearChargingLimitAsync(ChargingClearCommand cmd, CancellationToken ct = default) =>
+        PublishAsync(OcppRoutingKeys.ChargingClear, cmd, ct);
 
     private async Task PublishAsync<T>(string routingKey, T payload, CancellationToken ct)
     {

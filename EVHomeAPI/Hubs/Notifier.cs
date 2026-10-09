@@ -11,6 +11,8 @@ public record SessionStartFailedMsg(int StationId, int SessionId, string Reason)
 public record MeterUpdatedMsg(int StationId, int SessionId, decimal EnergyKwh, double? CurrentPowerKw, decimal? TotalCost, decimal? Soc);
 public record SessionFinalizedMsg(int StationId, int SessionId, decimal EnergyKwh, decimal? TotalCost, string StopReason);
 public record SessionStopFailedMsg(int StationId, int SessionId, string Reason);           // Rejected | Timeout
+/// <summary>Nabla Home extension. LimitA null = no limit. Status: Pending | Applied | Rejected | NotSupported | Timeout | Error.</summary>
+public record ChargingLimitUpdatedMsg(int StationId, decimal? LimitA, string Status);
 
 public interface INotifier
 {
@@ -20,6 +22,7 @@ public interface INotifier
     Task MeterUpdated(MeterUpdatedMsg m);
     Task SessionFinalized(SessionFinalizedMsg m);
     Task SessionStopFailed(SessionStopFailedMsg m);
+    Task ChargingLimitUpdated(ChargingLimitUpdatedMsg m);
 }
 
 public sealed class SignalRNotifier(IHubContext<ChargerHub> hub) : INotifier
@@ -33,4 +36,5 @@ public sealed class SignalRNotifier(IHubContext<ChargerHub> hub) : INotifier
     public Task MeterUpdated(MeterUpdatedMsg m)             => Send(m.StationId, nameof(MeterUpdated), m);
     public Task SessionFinalized(SessionFinalizedMsg m)     => Send(m.StationId, nameof(SessionFinalized), m);
     public Task SessionStopFailed(SessionStopFailedMsg m)   => Send(m.StationId, nameof(SessionStopFailed), m);
+    public Task ChargingLimitUpdated(ChargingLimitUpdatedMsg m) => Send(m.StationId, nameof(ChargingLimitUpdated), m);
 }

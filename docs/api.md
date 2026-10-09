@@ -49,6 +49,18 @@ and already-claimed return the same `400` (no station-ID discovery). Rate limit:
 | GET 🔒 | `/api/sessions/{id}` | — | `200 SessionDto` · `404` |
 | GET 🔒 | `/api/sessions/{id}/meter-history` | — | `200 [{elapsedSec, currentPowerKw, soc}]` ~1 sample / 30 s |
 
+### Current limit
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| PUT 🔒 | `/api/stations/{id}/limit` | `{limitA: number \| null}` | `202 StationDto` (`limitStatus: "Pending"`) · `400` outside 6…`maxCurrentA` · `403` not owner · `409` offline · `503` gateway down |
+
+`StationDto` adds `maxCurrentA` (installation maximum, set by admin, default 32), `currentLimitA`
+(`null` = no limit) and `limitStatus` (`Pending` → `Applied` | `Rejected` | `NotSupported` | `Timeout` | `Error`).
+EVOCPP sets a `TxDefaultProfile` (all future sessions, stored on the charger) and, if a session is running,
+a `TxProfile` for it. The charger's answer arrives as SignalR `ChargingLimitUpdated {stationId, limitA, status}`;
+answers to a superseded request are ignored.
+
 `SessionDto`: `{id, stationId, status, initiatedBy: "App"|"Charger", stopReason?: "UserInitiated"|"ChargerInitiated", createdAt, startedAt, endedAt, energyKwh, currentPowerKw, soc, transactionId}`
 
 Session lifecycle:
@@ -77,6 +89,7 @@ Event names and payloads are identical to the commercial Nabla app (`totalCost` 
 | `MeterUpdated` | `{stationId, sessionId, energyKwh, currentPowerKw, totalCost: null, soc}` |
 | `SessionFinalized` | `{stationId, sessionId, energyKwh, totalCost: null, stopReason}` |
 | `SessionStopFailed` | `{stationId, sessionId, reason: "Rejected"\|"Timeout"}` |
+| `ChargingLimitUpdated` | `{stationId, limitA, status}` — Nabla Home only |
 
 ## EVOCPP integration (RabbitMQ vhost `/home`)
 
@@ -94,7 +107,7 @@ Event names and payloads are identical to the commercial Nabla app (`totalCost` 
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/admin/stations` | `{ocppId, name}` | `200 {id, ocppId, name, claimCode}` · `409` exists |
+| POST | `/api/admin/stations` | `{ocppId, name, maxCurrentA?: 32}` | `200 {id, ocppId, name, claimCode}` · `409` exists |
 | POST | `/api/admin/stations/{ocppId}/claim-code` | — | `200 {…, claimCode}` new code, old one invalid |
 
 The claim code appears **only** in these responses; the database stores a BCrypt hash.

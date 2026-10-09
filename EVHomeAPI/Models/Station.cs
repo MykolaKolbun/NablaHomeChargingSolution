@@ -28,6 +28,15 @@ public class Station
     public string?   ConnectorStatus { get; set; }
     public DateTime? LastStatusAt    { get; set; }
 
+    // ── Current limit (SetChargingProfile via EVOCPP) ────────────────────────
+    /// <summary>Installation maximum in amps (cable/breaker/charger). Upper bound for CurrentLimitA.</summary>
+    public int       MaxCurrentA     { get; set; } = 32;
+    /// <summary>Owner's limit in amps; null = no limit (charger default).</summary>
+    public decimal?  CurrentLimitA   { get; set; }
+    /// <summary>Pending | Applied | Rejected | NotSupported | Timeout | Error — last charger answer.</summary>
+    public string?   LimitStatus     { get; set; }
+    public DateTime? LimitUpdatedAt  { get; set; }
+
     public ICollection<StationAccess>   Accesses { get; set; } = [];
     public ICollection<ChargingSession> Sessions { get; set; } = [];
 }

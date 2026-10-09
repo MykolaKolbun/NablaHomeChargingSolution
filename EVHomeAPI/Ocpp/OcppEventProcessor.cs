@@ -40,6 +40,7 @@ public class OcppEventProcessor(
             case OcppRoutingKeys.TransactionStopped:  await OnTransactionStopped(Parse<TransactionStoppedEvent>(json), ct); break;
             case OcppRoutingKeys.RemoteStartResponse: await OnRemoteStartResponse(Parse<RemoteStartResponseEvent>(json), ct); break;
             case OcppRoutingKeys.RemoteStopResponse:  await OnRemoteStopResponse(Parse<RemoteStopResponseEvent>(json), ct); break;
+            case OcppRoutingKeys.ChargingLimitResponse: await OnChargingLimitResponse(Parse<ChargingLimitResponseEvent>(json), ct); break;
             default: logger.LogDebug("Ignoring event {RoutingKey}", routingKey); break;
         }
     }
@@ -231,6 +232,30 @@ public class OcppEventProcessor(
         await db.SaveChangesAsync(ct);
 
         await notifier.SessionStartFailed(new SessionStartFailedMsg(session.StationId, session.Id, e.Status));
+    }
+
+    // ── charger.charging.limit.response ───────────────────────────────────────
+
+    /// <summary>
+    /// Records the charger's answer to the latest limit request. A response for an older
+    /// request (the owner changed the limit again meanwhile) is ignored.
+    /// Status reflects the TxDefaultProfile (future sessions); "Unknown" on a clear just
+    /// means there was no profile to remove — the clear is effective.
+    /// </summary>
+    private async Task OnChargingLimitResponse(ChargingLimitResponseEvent e, CancellationToken ct)
+    {
+        var station = await FindStation(e.OcppId, ct);
+        if (station is null) return;
+
+        var requested = e.LimitA is null ? (decimal?)null : Math.Round((decimal)e.LimitA.Value, 1);
+        if (requested != station.CurrentLimitA) return;   // superseded by a newer request
+
+        var applied = e.Status == "Accepted" || (requested is null && e.Status == "Unknown");
+        station.LimitStatus    = applied ? "Applied" : e.Status;
+        station.LimitUpdatedAt = Now;
+        await db.SaveChangesAsync(ct);
+
+        await notifier.ChargingLimitUpdated(new ChargingLimitUpdatedMsg(station.Id, station.CurrentLimitA, station.LimitStatus));
     }
 
     private async Task OnRemoteStopResponse(RemoteStopResponseEvent e, CancellationToken ct)

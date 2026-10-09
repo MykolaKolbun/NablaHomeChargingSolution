@@ -14,6 +14,8 @@ public sealed class FakeCommandPublisher : IOcppCommandPublisher
     public Task RemoteStopAsync(RemoteStopCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task AuthorizeResponseAsync(AuthorizeResponseCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task RequestStatusAsync(StatusRequestCommand cmd, CancellationToken ct = default) => Record(cmd);
+    public Task SetChargingLimitAsync(ChargingLimitCommand cmd, CancellationToken ct = default) => Record(cmd);
+    public Task ClearChargingLimitAsync(ChargingClearCommand cmd, CancellationToken ct = default) => Record(cmd);
 
     private Task Record(object cmd)
     {
@@ -36,6 +38,7 @@ public sealed class FakeNotifier : INotifier
     public Task MeterUpdated(MeterUpdatedMsg m)             => Record(m);
     public Task SessionFinalized(SessionFinalizedMsg m)     => Record(m);
     public Task SessionStopFailed(SessionStopFailedMsg m)   => Record(m);
+    public Task ChargingLimitUpdated(ChargingLimitUpdatedMsg m) => Record(m);
 
     private Task Record(object m) { Sent.Enqueue(m); return Task.CompletedTask; }
 

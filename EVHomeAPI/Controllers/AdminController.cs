@@ -30,6 +30,7 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, IL
         {
             OcppId        = ocppId,
             Name          = req.Name.Trim(),
+            MaxCurrentA   = req.MaxCurrentA,
             ClaimCodeHash = BCrypt.Net.BCrypt.HashPassword(ClaimCode.Normalize(code)),
         };
         db.Stations.Add(station);

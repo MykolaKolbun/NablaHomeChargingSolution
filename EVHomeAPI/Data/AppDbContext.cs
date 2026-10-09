@@ -38,6 +38,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         });
 
         b.Entity<Station>().Property(s => s.ConnectorStatus).HasMaxLength(32);
+        b.Entity<Station>().Property(s => s.CurrentLimitA).HasPrecision(5, 1);
+        b.Entity<Station>().Property(s => s.LimitStatus).HasMaxLength(16);
+        b.Entity<Station>().Property(s => s.MaxCurrentA).HasDefaultValue(32);
 
         b.Entity<ChargingSession>(e =>
         {

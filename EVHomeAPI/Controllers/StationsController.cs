@@ -163,6 +163,51 @@ public class StationsController(
         return Accepted(SessionDto.From(session));
     }
 
+    /// <summary>
+    /// Set (6…MaxCurrentA A) or remove (null) the charging current limit. Owner only.
+    /// Applied to future sessions and, if one is running, to it immediately. Returns 202;
+    /// the charger's answer arrives over SignalR (ChargingLimitUpdated) and in LimitStatus.
+    /// </summary>
+    [HttpPut("{id:int}/limit")]
+    public async Task<ActionResult<StationDto>> SetLimit(int id, SetLimitRequest req)
+    {
+        if (await FindAccess(id) is not { } access) return NotFound();
+        if (access.Role != StationRole.Owner) return Forbid();
+        var station = access.Station;
+
+        var limit = req.LimitA is null ? (decimal?)null : Math.Round(req.LimitA.Value, 1);
+        if (limit is not null && (limit < 6 || limit > station.MaxCurrentA))
+            return BadRequest($"Limit must be between 6 and {station.MaxCurrentA} A.");
+        if (!station.IsOnline) return Conflict("Station is offline.");
+
+        var runningTx = await db.Sessions
+            .Where(s => s.StationId == id && (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
+            .Select(s => s.OcppTransactionId)
+            .FirstOrDefaultAsync();
+
+        station.CurrentLimitA  = limit;
+        station.LimitStatus    = "Pending";
+        station.LimitUpdatedAt = Now;
+        await db.SaveChangesAsync();
+
+        try
+        {
+            if (limit is null)
+                await commands.ClearChargingLimitAsync(new ChargingClearCommand(station.OcppId));
+            else
+                await commands.SetChargingLimitAsync(new ChargingLimitCommand(station.OcppId, (double)limit.Value, runningTx));
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Charging limit publish failed for station {OcppId}", station.OcppId);
+            station.LimitStatus = "Error";
+            await db.SaveChangesAsync();
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Charger gateway unavailable.");
+        }
+
+        return Accepted(StationDto.From(station, access.Role));
+    }
+
     /// <summary>Session in progress (Pending/Active/Stopping), or 204 when idle.</summary>
     [HttpGet("{id:int}/session")]
     public async Task<ActionResult<SessionDto>> GetOpenSession(int id)

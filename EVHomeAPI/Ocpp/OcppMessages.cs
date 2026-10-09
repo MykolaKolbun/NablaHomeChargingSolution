@@ -24,6 +24,9 @@ public record RemoteStartResponseEvent(string OcppId, string Status, int Connect
 /// <summary>Status: Accepted (StopTransaction received) | Rejected | Timeout.</summary>
 public record RemoteStopResponseEvent(string OcppId, string Status, int? TransactionId);
 
+/// <summary>limitA null = clear. Status/TxStatus: Accepted | Rejected | NotSupported | Unknown | Timeout | Error.</summary>
+public record ChargingLimitResponseEvent(string OcppId, double? LimitA, string Status, string? TxStatus);
+
 public static class OcppRoutingKeys
 {
     public const string StatusChanged       = "charger.status.changed";
@@ -33,11 +36,14 @@ public static class OcppRoutingKeys
     public const string MeterUpdated        = "charger.meter.updated";
     public const string RemoteStartResponse = "charger.remote.start.response";
     public const string RemoteStopResponse  = "charger.remote.stop.response";
+    public const string ChargingLimitResponse = "charger.charging.limit.response";
 
     public const string RemoteStart       = "command.remote.start";
     public const string RemoteStop        = "command.remote.stop";
     public const string AuthorizeResponse = "command.authorize.response";
     public const string StatusRequest     = "command.statusreq";
+    public const string ChargingLimit     = "command.charging.limit";
+    public const string ChargingClear     = "command.charging.clear";
 }
 
 // ── Commands: EVHomeAPI → EVOCPP (PascalCase on the wire) ─────────────────────
@@ -57,3 +63,9 @@ public record AuthorizeResponseCommand(string ocppId, string status);
 /// connectorId null = all connectors. Discarded by EVOCPP when the charger is offline.
 /// </summary>
 public record StatusRequestCommand(string ocppId, int? connectorId);
+
+/// <summary>SetChargingProfile (camelCase, read by name). transactionId = running session to limit now.</summary>
+public record ChargingLimitCommand(string ocppId, double limitA, int? transactionId);
+
+/// <summary>ClearChargingProfile (camelCase, read by name).</summary>
+public record ChargingClearCommand(string ocppId);
