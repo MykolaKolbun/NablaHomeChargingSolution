@@ -33,3 +33,5 @@ android/app/.cxx/
 
 # Firmware secrets
 firmware/**/secrets.h
+# Arduino libraries (installed locally; versions pinned in firmware/README.md)
+firmware/esp32/libraries/
