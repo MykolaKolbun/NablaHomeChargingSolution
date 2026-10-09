@@ -13,6 +13,7 @@ import { apiErrorMessage, devApi, DevCallResult } from '../../api/client';
 import { DebugEvent, stationHub } from '../../api/stationHub';
 import { useTheme } from '../../context/ThemeContext';
 import { useStationLive } from '../../hooks/useStationLive';
+import { registerForPush } from '../../push/pushNotifications';
 import ConfirmSheet from '../../components/ui/ConfirmSheet';
 import type { AppColors } from '../../theme';
 import type { StationsStackParamList } from '../../types';
@@ -89,6 +90,19 @@ export default function DevScreen({ route }: Props) {
     const err = await live.setLimit(a);
     setBusy(null);
     setLast({ action: `PUT limit ${a} A`, status: err ? 'RequestFailed' : 'Accepted (Pending → see ChargingLimitUpdated in log)', result: err });
+  };
+
+  const testPush = async (kind: string) => {
+    setBusy(`push ${kind}`);
+    try {
+      await registerForPush();   // make sure this device is registered first
+      const { data } = await devApi.push(stationId, kind);
+      setLast({ action: `push ${kind}`, status: data.enabled ? `sent ${data.sent}/${data.devices}` : 'FCM not configured on server', result: data });
+    } catch (e) {
+      setLast({ action: `push ${kind}`, status: 'RequestFailed', result: apiErrorMessage(e, 'network error') });
+    } finally {
+      setBusy(null);
+    }
   };
 
   const sendDataTransfer = (messageId: string, data?: string) =>
@@ -169,6 +183,14 @@ export default function DevScreen({ route }: Props) {
           <Btn label="UnlockConnector" danger onPress={() => setConfirm({ title: 'UnlockConnector 1', text: 'Releases the cable lock; a running session is stopped.', action: 'UnlockConnector', payload: { connectorId: 1 } })} />
           <Btn label="ClearCache" onPress={() => call('ClearCache')} />
           <Btn label="GetCompositeSchedule" onPress={() => call('GetCompositeSchedule', { connectorId: 1, duration: 3600, chargingRateUnit: 'A' })} />
+        </View>
+      </Section>
+
+      <Section s={s} title="Push notifications">
+        <View style={s.row}>
+          {['Paused', 'Resumed', 'ResumeFailed', 'Completed'].map(k => (
+            <Btn key={k} label={k} onPress={() => testPush(k)} />
+          ))}
         </View>
       </Section>
 

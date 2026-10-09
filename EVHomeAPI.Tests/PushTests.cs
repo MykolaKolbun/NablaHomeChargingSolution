@@ -119,6 +119,21 @@ public class PushTests
             Assert.Equal(["owner-phone", "stranger"], await db.DeviceTokens.OrderBy(d => d.Token).Select(d => d.Token).ToListAsync()));
     }
 
+    [Fact]
+    public async Task Dev_push_reports_devices_and_disabled_sender()
+    {
+        using var f = new ApiFactory();
+        var (owner, stationId) = await f.CreateOwnedStationAsync(Id);
+        await owner.PostAsJsonAsync("/api/devices", new RegisterDeviceRequest("owner-phone", "android", "uk"));
+
+        var res = await owner.PostAsJsonAsync($"/api/stations/{stationId}/dev/push", new DevPushRequest("Paused"));
+        var body = (await res.Content.ReadFromJsonAsync<DevPushResult>())!;
+        Assert.False(body.Enabled);                 // no FCM credentials in tests
+        Assert.Equal(1, body.Devices);
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await owner.PostAsJsonAsync($"/api/stations/{stationId}/dev/push", new DevPushRequest("Nope"))).StatusCode);
+    }
+
     [Theory]
     [InlineData(PushKind.Paused, null, "uk", "призупинено")]
     [InlineData(PushKind.Resumed, null, "uk", "2.5 кВт·год")]

@@ -54,23 +54,29 @@ public sealed class PushWorker(PushQueue queue, IServiceScopeFactory scopes, IPu
         }
     }
 
-    public static async Task DeliverAsync(AppDbContext db, IPushSender sender, PushEvent e, CancellationToken ct = default)
+    /// <summary>Returns how many devices FCM accepted the message for.</summary>
+    public static async Task<int> DeliverAsync(AppDbContext db, IPushSender sender, PushEvent e, CancellationToken ct = default)
     {
         var station = await db.Stations.FirstOrDefaultAsync(s => s.Id == e.StationId, ct);
-        if (station is null) return;
+        if (station is null) return 0;
 
         var devices = await db.DeviceTokens
             .Where(d => db.StationAccesses.Any(a => a.StationId == e.StationId && a.UserId == d.UserId))
             .ToListAsync(ct);
 
+        var sent = 0;
         foreach (var d in devices)
         {
             var (title, body) = PushTexts.Render(e, station.Name, d.Language);
             var data = new Dictionary<string, string> { ["stationId"] = e.StationId.ToString(), ["kind"] = e.Kind.ToString() };
-            if (await sender.SendAsync(d.Token, title, body, data, ct) == PushResult.InvalidToken)
-                db.DeviceTokens.Remove(d);
+            switch (await sender.SendAsync(d.Token, title, body, data, ct))
+            {
+                case PushResult.Sent:         sent++; break;
+                case PushResult.InvalidToken: db.DeviceTokens.Remove(d); break;
+            }
         }
         await db.SaveChangesAsync(ct);
+        return sent;
     }
 }
 

@@ -55,6 +55,7 @@ Charger OCPP URL: `wss://home-ocpp.alternatiview.com.ua/ws/{chargePointId}`
 | `HOME_TRACE_DOWNLOAD_KEY` | New random secret for `/api/admin/traces` |
 | `HOME_JWT_KEY` | Random, ≥ 32 chars — signs user JWTs. Changing it logs everyone out |
 | `HOME_ADMIN_KEY` | Random, ≥ 24 chars — header `X-Admin-Key` for `/api/admin/*` |
+| `HOME_FCM_SERVICE_ACCOUNT_B64` | Optional. Base64 of the Firebase service-account JSON (project `nabla-home`, Project settings → Service accounts → Generate new private key). Empty = push notifications off. PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.json")) | Set-Clipboard` |
 
 Generate on Windows (works in Windows PowerShell 5.1 and PowerShell 7; 48 chars):
 

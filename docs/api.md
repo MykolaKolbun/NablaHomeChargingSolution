@@ -90,11 +90,26 @@ One open session per station (Pending/Active/Stopping/Paused) is enforced by a u
 |---|---|---|---|
 | POST 🔒 | `/api/stations/{id}/dev/call` | `{action, payload?}` | `200 {action, status, result, elapsedMs}` · `400` action not allowed · `504` no answer within `DevTools:CallTimeoutSeconds` |
 | GET 🔒 | `/api/stations/{id}/dev/charger` | — | EVOCPP's raw plug JSON (firmware, meterType, protocol, last heartbeat…) |
+| POST 🔒 | `/api/stations/{id}/dev/push` | `{kind}` — `Paused` \| `Resumed` \| `ResumeFailed` \| `Completed` | `200 {enabled, devices, sent}` — sample push to all devices of the station users, sent synchronously |
 
 `action` ∈ `GetConfiguration`, `ChangeConfiguration`, `TriggerMessage`, `DataTransfer`, `Reset`, `UnlockConnector`,
 `ClearCache`, `GetCompositeSchedule`, `GetLocalListVersion` — `payload` is the OCPP 1.6 request body as is.
 `status`: `Ok` (charger answered; `result` = its raw CALLRESULT payload), `Invalid`, `NotConnected`, `NotSupported`,
 `Timeout`, `Error`. Routed via EVOCPP `command.dev.call` / `charger.dev.call.response`.
+
+## Push notifications (FCM)
+
+| Method | Path | Body | Response |
+|---|---|---|---|
+| POST 🔒 | `/api/devices` | `{token, platform?: "android", language?: "uk"\|"en"}` | `204` — register / refresh this install's FCM token (moves to the caller if another account had it) |
+| POST 🔒 | `/api/devices/unregister` | `{token}` | `204` — on logout |
+
+EVHomeAPI sends straight to FCM HTTP v1 (service account `Fcm:ServiceAccountJsonBase64`; empty = push off)
+from an in-memory queue (`PushWorker`) to every device of every user with access to the station. Texts are
+rendered server-side in the device language. Events: `Paused` (charger lost power), `Resumed`, `ResumeFailed`
+(unplugged / car did not restart / pause > 24 h), `Completed` (finished by the charger or the car — not when
+stopped from the app). FCM `data`: `{stationId, kind}`; Android channel `charging`. Tokens that FCM reports
+as unregistered are deleted.
 
 ## SignalR — `/hubs/charger`
 

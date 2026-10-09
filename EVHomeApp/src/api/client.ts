@@ -88,6 +88,8 @@ export const devApi = {
     }
   },
   charger: (stationId: number) => api.get<unknown>(`/stations/${stationId}/dev/charger`),
+  push:    (stationId: number, kind: string) =>
+    api.post<{ enabled: boolean; devices: number; sent: number }>(`/stations/${stationId}/dev/push`, { kind }),
 };
 
 export const sessionsApi = {

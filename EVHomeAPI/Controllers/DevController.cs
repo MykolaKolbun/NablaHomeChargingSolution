@@ -2,6 +2,7 @@ using System.Text.Json;
 using EVHomeAPI.Data;
 using EVHomeAPI.Models;
 using EVHomeAPI.Ocpp;
+using EVHomeAPI.Push;
 using EVHomeAPI.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -10,6 +11,11 @@ using Microsoft.EntityFrameworkCore;
 namespace EVHomeAPI.Controllers;
 
 public record DevCallRequest(string Action, JsonElement? Payload);
+
+public record DevPushRequest(string Kind);
+
+/// <summary>Enabled = FCM credentials configured; Devices = registered devices of the station users; Sent = accepted by FCM.</summary>
+public record DevPushResult(bool Enabled, int Devices, int Sent);
 
 /// <summary>Raw charger answer. Status: Ok | Invalid | NotConnected | NotSupported | Timeout | Error.</summary>
 public record DevCallResult(string Action, string Status, JsonElement? Result, int ElapsedMs);
@@ -83,6 +89,24 @@ public class DevController(
             logger.LogWarning(ex, "EVOCPP plug info for {OcppId} unavailable", ocppId);
             return StatusCode(StatusCodes.Status502BadGateway, "EVOCPP unavailable.");
         }
+    }
+
+    /// <summary>
+    /// Sends a sample push (kind: Paused | Resumed | ResumeFailed | Completed) to every device of
+    /// the station's users, synchronously, and reports how many FCM accepted.
+    /// </summary>
+    [HttpPost("push")]
+    public async Task<ActionResult<DevPushResult>> Push(int id, DevPushRequest req, [FromServices] IPushSender sender, CancellationToken ct)
+    {
+        if (await GuardAsync(id) is { } deny) return deny;
+        if (!Enum.TryParse<PushKind>(req.Kind, out var kind)) return BadRequest("Unknown kind.");
+
+        var devices = await db.DeviceTokens
+            .CountAsync(d => db.StationAccesses.Any(a => a.StationId == id && a.UserId == d.UserId), ct);
+        var sent = sender.Enabled
+            ? await PushWorker.DeliverAsync(db, sender, new PushEvent(id, kind, 12.3m, kind == PushKind.ResumeFailed ? "NotRestarted" : null), ct)
+            : 0;
+        return Ok(new DevPushResult(sender.Enabled, devices, sent));
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
