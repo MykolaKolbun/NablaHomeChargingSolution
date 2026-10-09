@@ -229,7 +229,7 @@ public class ChargingTests
         await owner2.PostAsync($"/api/stations/{station2}/stop", null);                                    // stays Stopping
 
         f.Clock.Advance(StaleSessionWatchdog.StaleAfter + TimeSpan.FromSeconds(1));
-        await f.WithDbAsync(db => StaleSessionWatchdog.RunOnceAsync(db, f.Notifier, f.Clock));
+        await f.RunWatchdogAsync();
 
         Assert.Equal("Timeout", Assert.Single(f.Notifier.Of<SessionStartFailedMsg>()).Reason);
         Assert.Equal("Timeout", Assert.Single(f.Notifier.Of<SessionStopFailedMsg>()).Reason);

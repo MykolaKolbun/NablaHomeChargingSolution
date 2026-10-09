@@ -39,6 +39,7 @@ public sealed class FakeNotifier : INotifier
     public Task MeterUpdated(MeterUpdatedMsg m)             => Record(m);
     public Task SessionFinalized(SessionFinalizedMsg m)     => Record(m);
     public Task SessionStopFailed(SessionStopFailedMsg m)   => Record(m);
+    public Task SessionPaused(SessionPausedMsg m)           => Record(m);
     public Task ChargingLimitUpdated(ChargingLimitUpdatedMsg m) => Record(m);
 
     private Task Record(object m) { Sent.Enqueue(m); return Task.CompletedTask; }

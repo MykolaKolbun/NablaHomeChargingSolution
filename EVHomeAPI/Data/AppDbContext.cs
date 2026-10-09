@@ -50,6 +50,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(s => s.InitiatedBy).HasConversion<string>().HasMaxLength(16);
             e.Property(s => s.StopReason).HasConversion<string>().HasMaxLength(24);
             e.Property(s => s.EnergyKwh).HasPrecision(12, 3);
+            e.Property(s => s.CarriedEnergyKwh).HasPrecision(12, 3);
             e.Property(s => s.MeterStartWh).HasPrecision(14, 2);
             e.Property(s => s.MeterStopWh).HasPrecision(14, 2);
             e.Property(s => s.Soc).HasPrecision(5, 1);
@@ -58,7 +59,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             // At most one open session per station — guards concurrent Start requests.
             e.HasIndex(s => s.StationId)
                 .IsUnique()
-                .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping')")
+                .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping', 'Paused')")
                 .HasDatabaseName("IX_Sessions_OneOpenPerStation");
             e.HasIndex(s => s.TrackingId);
         });

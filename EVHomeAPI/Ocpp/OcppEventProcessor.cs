@@ -21,6 +21,8 @@ public class OcppEventProcessor(
     INotifier notifier,
     IOcppCommandPublisher commands,
     DevCallRegistry devCalls,
+    SessionResumeService resume,
+    ChargingLimitService limits,
     TimeProvider clock,
     ILogger<OcppEventProcessor> logger)
 {
@@ -44,6 +46,7 @@ public class OcppEventProcessor(
             case OcppRoutingKeys.RemoteStopResponse:  await OnRemoteStopResponse(Parse<RemoteStopResponseEvent>(json), ct); break;
             case OcppRoutingKeys.ChargingLimitResponse: await OnChargingLimitResponse(Parse<ChargingLimitResponseEvent>(json), ct); break;
             case OcppRoutingKeys.DevCallResponse:       devCalls.Complete(Parse<DevCallResponseEvent>(json)); break;
+            case OcppRoutingKeys.Booted:                await OnBooted(Parse<ChargerBootedEvent>(json), ct); break;
             default: logger.LogDebug("Ignoring event {RoutingKey}", routingKey); break;
         }
     }
@@ -57,8 +60,7 @@ public class OcppEventProcessor(
     /// <summary>The session currently in progress on a station (at most one by construction).</summary>
     private Task<ChargingSession?> OpenSession(int stationId, CancellationToken ct) =>
         db.Sessions
-            .Where(s => s.StationId == stationId &&
-                        (s.Status == SessionStatus.Pending || s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
+            .Where(s => s.StationId == stationId && ChargingSession.OpenStatuses.Contains(s.Status))
             .OrderByDescending(s => s.Id)
             .FirstOrDefaultAsync(ct);
 
@@ -75,6 +77,53 @@ public class OcppEventProcessor(
         await db.SaveChangesAsync(ct);
 
         await notifier.StatusUpdated(new StatusUpdatedMsg(station.Id, e.ConnectorId, e.Status, e.IsConnected, e.CarId));
+
+        var session = await OpenSession(station.Id, ct);
+        if (session is null) return;
+
+        if (!e.IsConnected)
+        {
+            // Charger went silent mid-charge (power cut or network). Stopping is left alone:
+            // the user wanted it stopped, so it must not be resumed (watchdog finishes it).
+            if (session.Status == SessionStatus.Active)
+                await resume.PauseAsync(session, "ChargerOffline", ct);
+            return;
+        }
+
+        if (session.Status != SessionStatus.Paused || e.ConnectorId != 1) return;
+
+        if (session.OcppTransactionId is not null)
+        {
+            // Only a network blip: the transaction kept running on the charger.
+            if (e.Status == "Charging") await ResumeActiveAsync(station, session, ct);
+            // Otherwise wait for the StopTransaction (Wallbox: Finishing, then StopTransaction PowerLoss).
+            return;
+        }
+        await resume.EvaluateAsync(station, session, ct);   // e.g. unplugged while paused → end
+    }
+
+    /// <summary>Paused but the transaction survived (network blip): back to Active.</summary>
+    private async Task ResumeActiveAsync(Station station, ChargingSession session, CancellationToken ct)
+    {
+        session.Status   = SessionStatus.Active;
+        session.PausedAt = null;
+        await db.SaveChangesAsync(ct);
+        await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, session.OcppTransactionId!.Value, session.MeterStartWh));
+    }
+
+    // ── charger.booted ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A reboot (e.g. after a power cut) may wipe the charger's charging profiles, and its
+    /// own default (e.g. 32 A) can exceed the house supply → re-push the effective limit.
+    /// </summary>
+    private async Task OnBooted(ChargerBootedEvent e, CancellationToken ct)
+    {
+        var station = await FindStation(e.OcppId, ct);
+        if (station is null) return;
+        logger.LogInformation("Station {OcppId} booted — re-applying current limit {LimitA} A",
+            e.OcppId, ChargingLimitService.EffectiveLimit(station));
+        await limits.ApplyAsync(station, ct);
     }
 
     // ── charger.authorize.requested (ISO 15118 vehicle identity) ──────────────
@@ -100,6 +149,26 @@ public class OcppEventProcessor(
         if (station is null) return;
 
         var session = await OpenSession(station.Id, ct);
+
+        if (session?.Status == SessionStatus.Paused)
+        {
+            // Resumed after a power loss (our RemoteStart, or started at the charger): a new
+            // transaction under the same session. Checked before the duplicate test because
+            // chargers restart transaction ids after a reboot.
+            session.CarriedEnergyKwh  = session.EnergyKwh;
+            session.Status            = SessionStatus.Active;
+            session.OcppTransactionId = e.TransactionId;
+            session.MeterStartWh      = e.MeterStartWh;
+            session.MeterStopWh       = null;
+            session.PausedAt          = null;
+            session.ResumeAttempts    = 0;
+            session.ResumeRequestedAt = null;
+            await db.SaveChangesAsync(ct);
+            logger.LogInformation("Station {OcppId}: session {SessionId} resumed with transaction {TxId}",
+                e.OcppId, session.Id, e.TransactionId);
+            await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, e.TransactionId, e.MeterStartWh));
+            return;
+        }
 
         if (session is not null && session.OcppTransactionId == e.TransactionId)
             return;   // duplicate delivery
@@ -158,10 +227,17 @@ public class OcppEventProcessor(
 
         var session = await OpenSession(station.Id, ct);
         if (session is null || session.Status == SessionStatus.Pending) return;
+        if (session.Status == SessionStatus.Paused)
+        {
+            if (session.OcppTransactionId is null) return;    // between transactions — nothing to meter
+            session.Status   = SessionStatus.Active;          // meter of the old transaction → it survived
+            session.PausedAt = null;
+            await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, session.OcppTransactionId.Value, session.MeterStartWh));
+        }
 
         // Baseline: what StartTransaction reported, else EVOCPP's restored value, else the first reading.
         session.MeterStartWh ??= e.MeterStartWh ?? e.MeterValueWh;
-        session.EnergyKwh      = Math.Max(0, (e.MeterValueWh - session.MeterStartWh.Value) / 1000m);
+        session.EnergyKwh      = session.EnergyAt(e.MeterValueWh);
         session.CurrentPowerKw = e.CurrentPowerKw;
         if (e.Soc is not null) session.Soc = e.Soc;
 
@@ -197,11 +273,20 @@ public class OcppEventProcessor(
 
         var session = await db.Sessions
             .Where(s => s.StationId == station.Id && s.OcppTransactionId == e.TransactionId &&
-                        (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
+                        (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping || s.Status == SessionStatus.Paused))
             .FirstOrDefaultAsync(ct);
         if (session is null) return;   // unknown or already finalized
 
         session.MeterStartWh ??= e.MeterStartWh;
+
+        // Power loss: keep the session, resume when the charger can (unless the user asked to stop).
+        if (session.Status != SessionStatus.Stopping &&
+            (e.Reason == "PowerLoss" || (session.Status == SessionStatus.Paused && e.Reason == "Reboot")))
+        {
+            await resume.EndTransactionAndPauseAsync(station, session, e.MeterStopWh, ct);
+            return;
+        }
+
         var reason = session.Status == SessionStatus.Stopping ? SessionStopReason.UserInitiated : SessionStopReason.ChargerInitiated;
         CloseSession(session, e.MeterStopWh, reason);
         await db.SaveChangesAsync(ct);
@@ -217,7 +302,7 @@ public class OcppEventProcessor(
         session.CurrentPowerKw = 0;
         session.MeterStopWh    = meterStopWh;
         if (meterStopWh is not null && session.MeterStartWh is not null)
-            session.EnergyKwh = Math.Max(0, (meterStopWh.Value - session.MeterStartWh.Value) / 1000m);
+            session.EnergyKwh = session.EnergyAt(meterStopWh.Value);
     }
 
     // ── charger.remote.start.response / remote.stop.response ──────────────────
@@ -227,7 +312,12 @@ public class OcppEventProcessor(
         // Accepted is published only after StartTransaction → OnTransactionStarted already ran.
         if (e.Status == "Accepted" || e.TrackingId is null) return;
 
-        var session = await db.Sessions.FirstOrDefaultAsync(s => s.TrackingId == e.TrackingId, ct);
+        var session = await db.Sessions.Include(s => s.Station).FirstOrDefaultAsync(s => s.TrackingId == e.TrackingId, ct);
+        if (session?.Status == SessionStatus.Paused)
+        {
+            await resume.OnResumeRejectedAsync(session.Station, session, e.Status, ct);
+            return;
+        }
         if (session is null || session.Status != SessionStatus.Pending) return;
 
         session.Status  = SessionStatus.Cancelled;

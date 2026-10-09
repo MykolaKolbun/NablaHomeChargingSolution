@@ -14,7 +14,11 @@ public record AuthorizeRequestedEvent(string OcppId, string CarId, int? Connecto
 
 public record TransactionStartedEvent(string OcppId, int TransactionId, decimal? MeterStartWh);
 
-public record TransactionStoppedEvent(string OcppId, int TransactionId, decimal MeterStopWh, decimal? MeterStartWh);
+/// <summary>Reason: OCPP 1.6 StopTransaction.reason (PowerLoss, EVDisconnected, Remote, Local, Reboot, …); null = omitted.</summary>
+public record TransactionStoppedEvent(string OcppId, int TransactionId, decimal MeterStopWh, decimal? MeterStartWh, string? Reason = null);
+
+/// <summary>BootNotification accepted — volatile charger state (the limit profile) may be gone.</summary>
+public record ChargerBootedEvent(string OcppId);
 
 public record MeterUpdatedEvent(string OcppId, decimal MeterValueWh, decimal? MeterStartWh, double? CurrentPowerKw, decimal? Soc);
 
@@ -38,6 +42,7 @@ public static class OcppRoutingKeys
     public const string RemoteStopResponse  = "charger.remote.stop.response";
     public const string ChargingLimitResponse = "charger.charging.limit.response";
     public const string DevCallResponse       = "charger.dev.call.response";
+    public const string Booted                = "charger.booted";
 
     public const string RemoteStart       = "command.remote.start";
     public const string RemoteStop        = "command.remote.stop";

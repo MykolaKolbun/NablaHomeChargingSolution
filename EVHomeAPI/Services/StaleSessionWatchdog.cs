@@ -10,6 +10,9 @@ namespace EVHomeAPI.Services;
 /// If it is down or the response is lost, a session would hang forever:
 ///   Pending  &gt; StaleAfter → Cancelled + SessionStartFailed("Timeout")
 ///   Stopping &gt; StaleAfter → back to Active + SessionStopFailed("Timeout")  (user may retry)
+///                           or, if the charger is offline (unpowered), Completed — the user
+///                           wanted it stopped and nothing is charging
+/// Also drives Paused sessions (resume retries, give-up) — see SessionResumeService.SweepAsync.
 /// </summary>
 public sealed class StaleSessionWatchdog(
     IServiceScopeFactory scopes,
@@ -27,8 +30,7 @@ public sealed class StaleSessionWatchdog(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                await RunOnceAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(),
-                                   scope.ServiceProvider.GetRequiredService<INotifier>(), clock, ct);
+                await RunOnceAsync(scope.ServiceProvider, ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -37,10 +39,13 @@ public sealed class StaleSessionWatchdog(
         }
     }
 
-    public static async Task RunOnceAsync(AppDbContext db, INotifier notifier, TimeProvider clock, CancellationToken ct = default)
+    public static async Task RunOnceAsync(IServiceProvider services, CancellationToken ct = default)
     {
-        var now    = clock.GetUtcNow().UtcDateTime;
-        var cutoff = now - StaleAfter;
+        var db       = services.GetRequiredService<AppDbContext>();
+        var notifier = services.GetRequiredService<INotifier>();
+        var clock    = services.GetRequiredService<TimeProvider>();
+        var now      = clock.GetUtcNow().UtcDateTime;
+        var cutoff   = now - StaleAfter;
 
         var pending = await db.Sessions
             .Where(s => s.Status == SessionStatus.Pending && s.CreatedAt < cutoff)
@@ -52,17 +57,33 @@ public sealed class StaleSessionWatchdog(
         }
 
         var stopping = await db.Sessions
+            .Include(s => s.Station)
             .Where(s => s.Status == SessionStatus.Stopping && s.StopRequestedAt < cutoff)
             .ToListAsync(ct);
-        foreach (var s in stopping)
+        var reverted  = stopping.Where(s => s.Station.IsOnline).ToList();
+        var abandoned = stopping.Where(s => !s.Station.IsOnline).ToList();
+        foreach (var s in reverted)
             s.Status = SessionStatus.Active;
+        foreach (var s in abandoned)
+        {
+            s.Status         = SessionStatus.Completed;
+            s.StopReason     = SessionStopReason.UserInitiated;
+            s.EndedAt        = now;
+            s.CurrentPowerKw = 0;
+        }
 
-        if (pending.Count == 0 && stopping.Count == 0) return;
-        await db.SaveChangesAsync(ct);
+        if (pending.Count + stopping.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
 
-        foreach (var s in pending)
-            await notifier.SessionStartFailed(new SessionStartFailedMsg(s.StationId, s.Id, "Timeout"));
-        foreach (var s in stopping)
-            await notifier.SessionStopFailed(new SessionStopFailedMsg(s.StationId, s.Id, "Timeout"));
+            foreach (var s in pending)
+                await notifier.SessionStartFailed(new SessionStartFailedMsg(s.StationId, s.Id, "Timeout"));
+            foreach (var s in reverted)
+                await notifier.SessionStopFailed(new SessionStopFailedMsg(s.StationId, s.Id, "Timeout"));
+            foreach (var s in abandoned)
+                await notifier.SessionFinalized(new SessionFinalizedMsg(s.StationId, s.Id, s.EnergyKwh, null, s.StopReason.ToString()!));
+        }
+
+        await services.GetRequiredService<SessionResumeService>().SweepAsync(ct);
     }
 }

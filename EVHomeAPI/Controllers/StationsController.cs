@@ -1,5 +1,6 @@
 using EVHomeAPI.Data;
 using EVHomeAPI.DTOs;
+using EVHomeAPI.Hubs;
 using EVHomeAPI.Models;
 using EVHomeAPI.Ocpp;
 using EVHomeAPI.Services;
@@ -17,6 +18,7 @@ public class StationsController(
     AppDbContext db,
     IOcppCommandPublisher commands,
     ChargingLimitService limits,
+    INotifier notifier,
     TimeProvider clock,
     ILogger<StationsController> logger) : ControllerBase
 {
@@ -147,6 +149,26 @@ public class StationsController(
         if (session.Status == SessionStatus.Pending) return Conflict("Session is still starting.");
         if (session.Status == SessionStatus.Stopping) return Accepted(SessionDto.From(session));
 
+        if (session.Status == SessionStatus.Paused)
+        {
+            // Resume RemoteStart in flight: stopping now would race the new transaction.
+            if (session.OcppTransactionId is null && session.TrackingId is not null)
+                return Conflict("Charging is resuming — try again in a minute.");
+
+            // Nothing is charging (no transaction, or the charger is unpowered): end it here.
+            // A late StopTransaction for the old transaction is ignored (session no longer open).
+            if (session.OcppTransactionId is null || !access.Station.IsOnline)
+            {
+                session.Status         = SessionStatus.Completed;
+                session.StopReason     = SessionStopReason.UserInitiated;
+                session.EndedAt        = Now;
+                session.CurrentPowerKw = 0;
+                await db.SaveChangesAsync();
+                await notifier.SessionFinalized(new SessionFinalizedMsg(id, session.Id, session.EnergyKwh, null, session.StopReason.ToString()!));
+                return Ok(SessionDto.From(session));
+            }
+        }
+
         session.Status          = SessionStatus.Stopping;
         session.StopRequestedAt = Now;
         await db.SaveChangesAsync();
@@ -192,7 +214,7 @@ public class StationsController(
         return Accepted(StationDto.From(station, access.Role));
     }
 
-    /// <summary>Session in progress (Pending/Active/Stopping), or 204 when idle.</summary>
+    /// <summary>Session in progress (Pending/Active/Stopping/Paused), or 204 when idle.</summary>
     [HttpGet("{id:int}/session")]
     public async Task<ActionResult<SessionDto>> GetOpenSession(int id)
     {
@@ -226,8 +248,7 @@ public class StationsController(
 
     private IQueryable<ChargingSession> OpenSessionQuery(int stationId) =>
         db.Sessions
-            .Where(s => s.StationId == stationId &&
-                        (s.Status == SessionStatus.Pending || s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
+            .Where(s => s.StationId == stationId && ChargingSession.OpenStatuses.Contains(s.Status))
             .OrderByDescending(s => s.Id);
 
     private Task<bool> HasOpenSession(int stationId) => OpenSessionQuery(stationId).AnyAsync();

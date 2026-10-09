@@ -85,6 +85,13 @@ public class ApiFactory : WebApplicationFactory<Program>
         await scope.ServiceProvider.GetRequiredService<OcppEventProcessor>().HandleAsync(routingKey, json);
     }
 
+    /// <summary>One StaleSessionWatchdog pass (stuck commands + Paused-session sweep).</summary>
+    public async Task RunWatchdogAsync()
+    {
+        await using var scope = Services.CreateAsyncScope();
+        await StaleSessionWatchdog.RunOnceAsync(scope.ServiceProvider);
+    }
+
     public async Task WithDbAsync(Func<AppDbContext, Task> action)
     {
         await using var scope = Services.CreateAsyncScope();

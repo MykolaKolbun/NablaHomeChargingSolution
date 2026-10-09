@@ -33,6 +33,7 @@ builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<TokenService>();
 builder.Services.AddScoped<ChargingLimitService>();
+builder.Services.AddScoped<SessionResumeService>();
 builder.Services.AddSingleton(TimeProvider.System);
 
 // ── EVOCPP integration (RabbitMQ) ─────────────────────────────────────────────
