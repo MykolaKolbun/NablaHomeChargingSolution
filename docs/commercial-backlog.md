@@ -46,3 +46,13 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   Without a runner every push to `master` leaves this job queued forever. `deploy.yml`
   (`ubuntu-latest` + QEMU arm64) already covers build and deploy.
 - **Found:** 2026-10-08, Pi memory review.
+
+## CB-005 · Destructive button is red-on-red in light theme
+- **Target:** `EVChargingApp/src/components/ui/Button.tsx` (`destructive` variant), `src/theme/colors.ts` (`LightColors.stopText`)
+- **Status:** idea
+- **Why:** light theme fills the button with `stopBorder` `#EF4444` and writes `stopText` `#DC2626` on it —
+  contrast 1.28:1, label unreadable (seen on a real phone in Nabla Home's stop confirmation, which uses the copied Button).
+  Dark theme is fine (5.28:1).
+- **Reference implementation here:** `EVHomeApp` — destructive = `stopBg` fill + `stopBorder` border + `stopText`;
+  light `stopText` → `#B91C1C`. Contrast: light 5.30:1, dark 8.40:1.
+- **Found:** 2026-10-09, first device test of EVHomeApp.

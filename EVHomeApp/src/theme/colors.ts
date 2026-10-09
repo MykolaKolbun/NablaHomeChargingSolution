@@ -62,7 +62,7 @@ export const LightColors: Partial<typeof Colors> = {
   tintRed:    '#FEF2F2',
   stopBg:     '#FEE2E2',
   stopBorder: '#EF4444',
-  stopText:   '#DC2626',
+  stopText:   '#B91C1C',   // red-700: 5.3:1 on stopBg (#DC2626 was 3.95:1)
 };
 
 export type AppColors = typeof Colors;

@@ -65,7 +65,9 @@ export default function Button({
   const bg: Record<ButtonVariant, string> = {
     primary:     colors.primary,
     secondary:   'transparent',
-    destructive: colors.stopBorder,
+    // stopBg + stopText is readable in both themes (light: #FEE2E2/#DC2626, dark: #3D1515/#FCA5A5).
+    // stopBorder as fill was red-on-red in light mode (#EF4444 bg, #DC2626 text).
+    destructive: colors.stopBg,
     ghost:       colors.bgInput,
   };
 
@@ -79,7 +81,7 @@ export default function Button({
   const borderColor: Record<ButtonVariant, string | undefined> = {
     primary:     undefined,
     secondary:   colors.border,
-    destructive: undefined,
+    destructive: colors.stopBorder,
     ghost:       colors.border,
   };
 
