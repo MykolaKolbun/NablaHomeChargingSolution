@@ -303,6 +303,29 @@ public class ChargingTests
     }
 
     [Fact]
+    public async Task Create_and_claim_request_fresh_status_from_charger()
+    {
+        using var f = new ApiFactory();
+        var created = await f.CreateStationAsync("03012");
+        Assert.Equal("03012", Assert.Single(f.Commands.Sent.OfType<StatusRequestCommand>()).ocppId);
+
+        var owner = await f.CreateUserClientAsync();
+        (await owner.PostAsJsonAsync("/api/stations/claim", new ClaimStationRequest("03012", created.ClaimCode))).EnsureSuccessStatusCode();
+        Assert.Equal(2, f.Commands.Sent.OfType<StatusRequestCommand>().Count());
+    }
+
+    [Fact]
+    public async Task Broker_down_does_not_fail_create_or_claim()
+    {
+        using var f = new ApiFactory();
+        f.Commands.Fail = true;
+        var created = await f.CreateStationAsync("03012");   // EnsureSuccessStatusCode inside
+        var owner   = await f.CreateUserClientAsync();
+        var claim   = await owner.PostAsJsonAsync("/api/stations/claim", new ClaimStationRequest("03012", created.ClaimCode));
+        Assert.Equal(HttpStatusCode.OK, claim.StatusCode);
+    }
+
+    [Fact]
     public void Commands_serialize_with_evocpp_casing()
     {
         // EVOCPP deserializes remote start/stop case-sensitively (PascalCase) but reads
@@ -313,5 +336,7 @@ public class ChargingTests
         Assert.Contains("\"IdTag\":\"U1\"", start);
         Assert.Contains("\"TrackingId\"", start);
         Assert.Equal("{\"ocppId\":\"30011\",\"status\":\"Accepted\"}", auth);
+        Assert.Equal("{\"ocppId\":\"03012\",\"connectorId\":null}",
+            System.Text.Json.JsonSerializer.Serialize(new StatusRequestCommand("03012", null)));
     }
 }

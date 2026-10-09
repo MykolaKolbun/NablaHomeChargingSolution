@@ -13,6 +13,7 @@ public sealed class FakeCommandPublisher : IOcppCommandPublisher
     public Task RemoteStartAsync(RemoteStartCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task RemoteStopAsync(RemoteStopCommand cmd, CancellationToken ct = default) => Record(cmd);
     public Task AuthorizeResponseAsync(AuthorizeResponseCommand cmd, CancellationToken ct = default) => Record(cmd);
+    public Task RequestStatusAsync(StatusRequestCommand cmd, CancellationToken ct = default) => Record(cmd);
 
     private Task Record(object cmd)
     {

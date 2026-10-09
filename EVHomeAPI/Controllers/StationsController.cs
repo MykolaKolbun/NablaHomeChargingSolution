@@ -71,6 +71,7 @@ public class StationsController(
             return BadRequest(invalid);        // someone else claimed it in the meantime
         }
 
+        await commands.TryRequestStatusAsync(station.OcppId, logger);   // fresh online/connector state for the new owner
         return Ok(StationDto.From(station, StationRole.Owner));
     }
 

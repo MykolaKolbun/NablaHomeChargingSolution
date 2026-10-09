@@ -37,6 +37,7 @@ public static class OcppRoutingKeys
     public const string RemoteStart       = "command.remote.start";
     public const string RemoteStop        = "command.remote.stop";
     public const string AuthorizeResponse = "command.authorize.response";
+    public const string StatusRequest     = "command.statusreq";
 }
 
 // ── Commands: EVHomeAPI → EVOCPP (PascalCase on the wire) ─────────────────────
@@ -50,3 +51,9 @@ public record RemoteStopCommand(string OcppId, int? TransactionId);
 /// camelCase names (TryGetProperty("ocppId") / ("status")) — see OcppCommandHandler.
 /// </summary>
 public record AuthorizeResponseCommand(string ocppId, string status);
+
+/// <summary>
+/// TriggerMessage(StatusNotification). Also read by EVOCPP with exact camelCase names.
+/// connectorId null = all connectors. Discarded by EVOCPP when the charger is offline.
+/// </summary>
+public record StatusRequestCommand(string ocppId, int? connectorId);

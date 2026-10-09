@@ -1,6 +1,7 @@
 using EVHomeAPI.Data;
 using EVHomeAPI.DTOs;
 using EVHomeAPI.Models;
+using EVHomeAPI.Ocpp;
 using EVHomeAPI.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,7 @@ namespace EVHomeAPI.Controllers;
 [ApiController]
 [AdminKey]
 [Route("api/admin")]
-public class AdminController(AppDbContext db) : ControllerBase
+public class AdminController(AppDbContext db, IOcppCommandPublisher commands, ILogger<AdminController> logger) : ControllerBase
 {
     /// <summary>Register a station and get its one-time claim code (shown only in this response).</summary>
     [HttpPost("stations")]
@@ -33,6 +34,7 @@ public class AdminController(AppDbContext db) : ControllerBase
         };
         db.Stations.Add(station);
         await db.SaveChangesAsync();
+        await commands.TryRequestStatusAsync(station.OcppId, logger);   // charger may already be online
 
         return Ok(new CreateStationResponse(station.Id, station.OcppId, station.Name, code));
     }
