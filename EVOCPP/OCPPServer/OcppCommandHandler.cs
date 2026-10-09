@@ -306,6 +306,43 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     break;
                 }
 
+            // ── Developer tooling: whitelisted raw OCPP 1.6 call ──────────────
+            // { ocppId, requestId, action, payload } → charger.dev.call.response
+            case "command.dev.call":
+                {
+                    var cmd       = JObject.Parse(json);
+                    var ocppId    = (string?)cmd["ocppId"];
+                    var requestId = (string?)cmd["requestId"];
+                    var action    = (string?)cmd["action"];
+                    var body      = cmd["payload"] as JObject ?? new JObject();
+
+                    if (string.IsNullOrEmpty(ocppId) || string.IsNullOrEmpty(requestId))
+                    {
+                        _tracer.Warning("DevCall", "Invalid payload — ocppId/requestId missing");
+                        break;
+                    }
+
+                    async Task Reply(string status, JToken? result) =>
+                        await RabbitMqPublisher.PublishDevCallResponseAsync(ocppId, requestId, action ?? "", status, result);
+
+                    if (DevCalls.Validate(action, body) is { } invalid) { await Reply("Invalid", invalid); break; }
+
+                    var devSocket = ChargingStationConnections.GetSocket(ocppId);
+                    if (devSocket is null || devSocket.State != WebSocketState.Open) { await Reply("NotConnected", null); break; }
+                    if (ChargingStationConnections.GetProtocol(ocppId) is "ocpp2.1" or "ocpp2.0.1" or "ocpp2.0")
+                    { await Reply("NotSupported", "OCPP 2.x dev calls are not implemented"); break; }
+
+                    try
+                    {
+                        var result = await _communicator.SendCallAndWaitAsync(devSocket, action!, body, _commandTimeout);
+                        _tracer.Info("DevCall", $"{ocppId}: {action} → {result.ToString(Newtonsoft.Json.Formatting.None)}");
+                        await Reply("Ok", result);
+                    }
+                    catch (OperationCanceledException) { await Reply("Timeout", null); }
+                    catch (Exception ex)               { await Reply("Error", ex.Message); }
+                    break;
+                }
+
             default:
                 OcppTrace.Msg("RMQ-Consumer", $"Unknown command: {routingKey}");
                 break;

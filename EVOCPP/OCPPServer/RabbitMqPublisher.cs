@@ -80,12 +80,16 @@ public static class RabbitMqPublisher
 
     // ── Internal publish helper ────────────────────────────────────────────────
 
-    private static async Task PublishAsync(string routingKey, object payload)
+    private static Task PublishAsync(string routingKey, object payload)
+        => PublishRawAsync(routingKey, JsonSerializer.Serialize(payload));
+
+    /// <summary>Publishes an already serialized JSON document.</summary>
+    private static async Task PublishRawAsync(string routingKey, string json)
     {
         if (_channel is null) return;   // RabbitMQ not configured — silently skip
         try
         {
-            var body  = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
+            var body  = Encoding.UTF8.GetBytes(json);
             var props = new BasicProperties
             {
                 ContentType  = "application/json",
@@ -202,4 +206,20 @@ public static class RabbitMqPublisher
     public static Task PublishChargingLimitResponseAsync(string ocppId, double? limitA, string status, string? txStatus)
         => PublishAsync("charger.charging.limit.response",
             new { ocppId, limitA, status, txStatus });
+
+    /// <summary>
+    /// Result of command.dev.call. status: Ok | Invalid | NotConnected | NotSupported | Timeout | Error.
+    /// result: the charger's raw CALLRESULT payload (Ok) or a reason string. Serialized with
+    /// Newtonsoft so a JToken result keeps its JSON shape.
+    /// </summary>
+    public static Task PublishDevCallResponseAsync(string ocppId, string requestId, string action, string status, Newtonsoft.Json.Linq.JToken? result)
+        => PublishRawAsync("charger.dev.call.response",
+            new Newtonsoft.Json.Linq.JObject
+            {
+                ["ocppId"]    = ocppId,
+                ["requestId"] = requestId,
+                ["action"]    = action,
+                ["status"]    = status,
+                ["result"]    = result,
+            }.ToString(Newtonsoft.Json.Formatting.None));
 }

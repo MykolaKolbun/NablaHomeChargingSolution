@@ -275,6 +275,21 @@ Result of `command.charging.limit` / `command.charging.clear` (§4.6, §4.7).
 
 `NotSupported` is also returned without contacting the charger for OCPP 2.x stations (not implemented yet).
 
+### 3.11 `charger.dev.call.response`
+
+Result of `command.dev.call` (§4.8).
+
+```json
+{ "ocppId": "03012", "requestId": "7f1c…", "action": "GetConfiguration", "status": "Ok",
+  "result": { "configurationKey": [ { "key": "MeterValueSampleInterval", "readonly": false, "value": "60" } ] } }
+```
+
+| Field | Notes |
+|---|---|
+| `requestId` | Echo of the command's `requestId` |
+| `status` | `Ok` (charger answered), `Invalid` (action/payload rejected by the whitelist), `NotConnected`, `NotSupported` (OCPP 2.x), `Timeout`, `Error` |
+| `result` | `Ok`: the charger's raw CALLRESULT payload; otherwise a reason string or `null` |
+
 ---
 
 ## 4. Inbound Commands (Consumers → OCPPServer)
@@ -414,6 +429,20 @@ replaces the previous one. Publishes `charger.charging.limit.response`.
 
 Sends `ClearChargingProfile` for purpose `TxDefaultProfile`, then `TxProfile` → no limit. Publishes
 `charger.charging.limit.response` with `limitA: null`.
+
+### 4.8 `command.dev.call` (developer tooling, OCPP 1.6)
+
+Raw OCPP call for development / diagnostics. camelCase.
+
+```json
+{ "ocppId": "03012", "requestId": "7f1c…", "action": "ChangeConfiguration",
+  "payload": { "key": "MeterValueSampleInterval", "value": "60" } }
+```
+
+Whitelisted actions (`DevCalls.AllowedActions`): `GetConfiguration`, `ChangeConfiguration`, `TriggerMessage`,
+`DataTransfer`, `Reset`, `UnlockConnector`, `ClearCache`, `GetCompositeSchedule`, `GetLocalListVersion`.
+Transaction and charging-profile actions are deliberately excluded — they have validated commands of their own.
+Minimal payload shape is validated (e.g. `Reset.type` ∈ Soft/Hard). Publishes `charger.dev.call.response`.
 
 ---
 
