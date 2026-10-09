@@ -1,10 +1,11 @@
-name: EVOCPP — build and deploy
+name: EVOCPP — test, build and deploy
 
 on:
   push:
     branches: [master]
     paths:
       - "EVOCPP/OCPPServer/**"
+      - "EVOCPP.Tests/**"
       - "deploy/**"
       - ".github/workflows/evocpp.yml"
   workflow_dispatch:
@@ -14,7 +15,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Test
+        run: dotnet test EVOCPP.Tests/EVOCPP.Tests.csproj -c Release --nologo
+
   build-and-deploy:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read

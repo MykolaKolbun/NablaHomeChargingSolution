@@ -192,4 +192,14 @@ public static class RabbitMqPublisher
     public static Task PublishDiagnosticsStatusAsync(string ocppId, string status)
         => PublishAsync("charger.diagnostics.status",
             new { ocppId, status });
+
+    /// <summary>
+    /// Result of command.charging.limit / command.charging.clear.
+    /// limitA null = clear. status = TxDefaultProfile result, txStatus = TxProfile result
+    /// (null when no running transaction was targeted). Values: Accepted | Rejected |
+    /// NotSupported | Unknown | Timeout | Error.
+    /// </summary>
+    public static Task PublishChargingLimitResponseAsync(string ocppId, double? limitA, string status, string? txStatus)
+        => PublishAsync("charger.charging.limit.response",
+            new { ocppId, limitA, status, txStatus });
 }

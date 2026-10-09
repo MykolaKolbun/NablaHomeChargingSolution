@@ -244,9 +244,121 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     break;
                 }
 
+            // ── Smart charging: current limit (OCPP 1.6) ──────────────────────
+            // { ocppId, limitA, transactionId? } — camelCase, read by name like statusreq.
+            case "command.charging.limit":
+                {
+                    var root   = payload.RootElement;
+                    var ocppId = root.TryGetProperty("ocppId", out var idEl) ? idEl.GetString() : null;
+                    var limitA = root.TryGetProperty("limitA", out var lEl) && lEl.ValueKind == JsonValueKind.Number
+                        ? lEl.GetDouble() : double.NaN;
+                    int? txId  = root.TryGetProperty("transactionId", out var tEl) && tEl.ValueKind == JsonValueKind.Number
+                        ? tEl.GetInt32() : null;
+
+                    if (string.IsNullOrEmpty(ocppId) || !ChargingProfiles.IsValidLimit(limitA))
+                    {
+                        _tracer.Warning("ChargingLimit", $"Invalid payload — ocppId='{ocppId}' limitA={limitA}");
+                        break;
+                    }
+                    if (!TryGetSocket16(ocppId, out var socket, out var unsupported))
+                    {
+                        if (unsupported) await RabbitMqPublisher.PublishChargingLimitResponseAsync(ocppId, limitA, "NotSupported", null);
+                        break;
+                    }
+
+                    var status = await SetProfileWithFallbackAsync(socket, ocppId,
+                        abs => ChargingProfiles.TxDefault(limitA, abs));
+
+                    string? txStatus = null;
+                    if (txId.HasValue && status == "Accepted")
+                        txStatus = await SetProfileWithFallbackAsync(socket, ocppId,
+                            abs => ChargingProfiles.Tx(connectorId: 1, txId.Value, limitA, abs));
+
+                    _tracer.Info("ChargingLimit", $"{ocppId}: limit {limitA} A → default={status} tx={txStatus ?? "-"}");
+                    await RabbitMqPublisher.PublishChargingLimitResponseAsync(ocppId, limitA, status, txStatus);
+                    break;
+                }
+
+            // { ocppId } — removes both limit profiles.
+            case "command.charging.clear":
+                {
+                    var ocppId = payload.RootElement.TryGetProperty("ocppId", out var idEl) ? idEl.GetString() : null;
+                    if (string.IsNullOrEmpty(ocppId))
+                    {
+                        _tracer.Warning("ChargingLimit", "[clear] invalid payload — ocppId is missing");
+                        break;
+                    }
+                    if (!TryGetSocket16(ocppId, out var socket, out var unsupported))
+                    {
+                        if (unsupported) await RabbitMqPublisher.PublishChargingLimitResponseAsync(ocppId, null, "NotSupported", null);
+                        break;
+                    }
+
+                    // "Unknown" = no such profile on the charger — fine for a clear.
+                    var status   = await CallStatusAsync(socket, ocppId, "ClearChargingProfile", ChargingProfiles.Clear("TxDefaultProfile"));
+                    var txStatus = await CallStatusAsync(socket, ocppId, "ClearChargingProfile", ChargingProfiles.Clear("TxProfile"));
+
+                    _tracer.Info("ChargingLimit", $"{ocppId}: limit cleared → default={status} tx={txStatus}");
+                    await RabbitMqPublisher.PublishChargingLimitResponseAsync(ocppId, null, status, txStatus);
+                    break;
+                }
+
             default:
                 OcppTrace.Msg("RMQ-Consumer", $"Unknown command: {routingKey}");
                 break;
+        }
+    }
+
+    // ── Smart charging helpers ────────────────────────────────────────────────
+
+    /// <summary>Open 1.6 socket for the station. unsupported=true for connected OCPP 2.x stations.</summary>
+    private static bool TryGetSocket16(string ocppId, out WebSocket socket, out bool unsupported)
+    {
+        socket      = ChargingStationConnections.GetSocket(ocppId)!;
+        unsupported = false;
+        if (socket is null || socket.State != WebSocketState.Open)
+        {
+            OcppTrace.Msg("ChargingLimit", $"{ocppId} not connected — discarding");
+            return false;
+        }
+        var protocol = ChargingStationConnections.GetProtocol(ocppId);
+        if (protocol is "ocpp2.1" or "ocpp2.0.1" or "ocpp2.0")
+        {
+            unsupported = true;   // TODO: SetChargingProfile for OCPP 2.x (different schema)
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>SetChargingProfile, retried as Absolute when the charger rejects Relative.</summary>
+    private async Task<string> SetProfileWithFallbackAsync(WebSocket socket, string ocppId, Func<bool, JObject> build)
+    {
+        var status = await CallStatusAsync(socket, ocppId, "SetChargingProfile", build(false));
+        if (status == "Rejected")
+        {
+            _tracer.Info("ChargingLimit", $"{ocppId}: Relative profile rejected — retrying as Absolute");
+            status = await CallStatusAsync(socket, ocppId, "SetChargingProfile", build(true));
+        }
+        return status;
+    }
+
+    /// <summary>Sends a CALL and returns its "status" (Accepted/Rejected/NotSupported/Unknown) or "Timeout"/"Error".</summary>
+    private async Task<string> CallStatusAsync(WebSocket socket, string ocppId, string action, JObject body)
+    {
+        try
+        {
+            var result = await _communicator.SendCallAndWaitAsync(socket, action, body, _commandTimeout);
+            return result["status"]?.Value<string>() ?? "Unknown";
+        }
+        catch (OperationCanceledException)
+        {
+            _tracer.Warning("ChargingLimit", $"{ocppId}: {action} timed out ({_commandTimeout.TotalSeconds:F0}s)", chargePointId: ocppId);
+            return "Timeout";
+        }
+        catch (Exception ex)
+        {
+            _tracer.Warning("ChargingLimit", $"{ocppId}: {action} failed: {ex.Message}", chargePointId: ocppId);
+            return "Error";
         }
     }
 }

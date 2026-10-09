@@ -258,6 +258,23 @@ Emitted when a charger sends a `DiagnosticsStatusNotification` (after a `GetDiag
 | `ocppId` | `string` | Station identity |
 | `status` | `string` | OCPP `DiagnosticsStatus`: `Idle`, `Uploaded`, `UploadFailed`, `Uploading` |
 
+### 3.10 `charger.charging.limit.response`
+
+Result of `command.charging.limit` / `command.charging.clear` (§4.6, §4.7).
+
+```json
+{ "ocppId": "03012", "limitA": 16, "status": "Accepted", "txStatus": "Accepted" }
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `ocppId` | `string` | Station identity |
+| `limitA` | `double?` | Requested limit; `null` for a clear |
+| `status` | `string` | Result for the `TxDefaultProfile`: `Accepted`, `Rejected`, `NotSupported`, `Unknown` (clear: no such profile), `Timeout`, `Error` |
+| `txStatus` | `string?` | Result for the running-transaction `TxProfile`; `null` when no `transactionId` was given (or the default profile failed) |
+
+`NotSupported` is also returned without contacting the charger for OCPP 2.x stations (not implemented yet).
+
 ---
 
 ## 4. Inbound Commands (Consumers → OCPPServer)
@@ -367,6 +384,36 @@ Shorthand for `TriggerMessage(StatusNotification)` — triggers a status report 
 | `connectorId` | `int?` | no | Scopes to a specific connector |
 
 Publishes `charger.trigger.response` on completion.
+
+### 4.6 `command.charging.limit` (OCPP 1.6)
+
+Limit the charging current. camelCase, read by exact name.
+
+```json
+{ "ocppId": "03012", "limitA": 16, "transactionId": 1 }
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `ocppId` | `string` | yes | Station identity |
+| `limitA` | `number` | yes | Amps, 6–80 (IEC 61851 minimum 6 A), rounded to 0.1 |
+| `transactionId` | `int?` | no | Running transaction to limit immediately |
+
+Sends `SetChargingProfile`:
+1. `TxDefaultProfile`, connector 0, id 1001, stack 0, kind `Relative`, unit `A` — all future transactions; stored by the charger.
+2. If `transactionId` is given and (1) was accepted: `TxProfile`, connector 1, id 1002 — the running session.
+
+A `Rejected` `Relative` profile is retried once as `Absolute` (`startSchedule` = now). Fixed ids mean a new limit
+replaces the previous one. Publishes `charger.charging.limit.response`.
+
+### 4.7 `command.charging.clear` (OCPP 1.6)
+
+```json
+{ "ocppId": "03012" }
+```
+
+Sends `ClearChargingProfile` for purpose `TxDefaultProfile`, then `TxProfile` → no limit. Publishes
+`charger.charging.limit.response` with `limitA: null`.
 
 ---
 
