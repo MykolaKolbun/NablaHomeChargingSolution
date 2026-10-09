@@ -52,12 +52,16 @@ namespace OCPPServer.OCPP1._6_Models
         private readonly ITracingService _tracer;
         private readonly TimeSpan        _commandTimeout;
         private readonly TimeSpan        _authorizeTimeout;
+        private readonly int             _meterValueSampleInterval;
 
         public Communicator(ITracingService tracer, IConfiguration config)
         {
             _tracer           = tracer;
             _commandTimeout   = TimeSpan.FromSeconds(config.GetValue("Ocpp:CommandTimeoutSeconds",   30));
             _authorizeTimeout = TimeSpan.FromSeconds(config.GetValue("Ocpp:AuthorizeTimeoutSeconds", 10));
+            // Some chargers (Wallbox Copper SB: ~300 s) sample too rarely for a live UI.
+            // Pushed to the charger after every BootNotification; 0 = leave the charger's value.
+            _meterValueSampleInterval = config.GetValue("Ocpp:MeterValueSampleIntervalSeconds", 60);
         }
 
         /// <summary>
@@ -244,7 +248,35 @@ namespace OCPPServer.OCPP1._6_Models
             };
 
             await SendCallResult(socket, messageId, responsePayload);
+
+            // After Boot is accepted the charger takes CALLs. Not awaited here: this method runs
+            // on the socket's receive loop, which must stay free to read the CALLRESULT.
+            if (_meterValueSampleInterval > 0)
+                _ = ConfigureMeterSamplingAsync(socket, connectorId);
         }
+
+        /// <summary>ChangeConfiguration(MeterValueSampleInterval). Best effort — logged, never thrown.</summary>
+        private async Task ConfigureMeterSamplingAsync(WebSocket socket, string stationId)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(2));   // let the charger finish its boot sequence
+                if (socket.State != WebSocketState.Open) return;
+
+                var result = await SendChangeConfiguration(socket, stationId,
+                    "MeterValueSampleInterval", _meterValueSampleInterval.ToString());
+                var status = result["status"]?.Value<string>() ?? "Unknown";   // Accepted | Rejected | RebootRequired | NotSupported
+                _tracer.Info("OCPP", $"{stationId}: MeterValueSampleInterval={_meterValueSampleInterval}s → {status}");
+            }
+            catch (Exception ex)
+            {
+                _tracer.Warning("OCPP", $"{stationId}: ChangeConfiguration(MeterValueSampleInterval) failed: {ex.Message}",
+                    chargePointId: stationId);
+            }
+        }
+
+        public Task<JObject> SendChangeConfiguration(WebSocket socket, string stationId, string key, string value) =>
+            SendCallAndWaitAsync(socket, "ChangeConfiguration", new JObject { ["key"] = key, ["value"] = value }, _commandTimeout);
 
         public async Task HandleHeartbeat(WebSocket socket, string messageId, string stationId, ChargingDBContext db)
         {

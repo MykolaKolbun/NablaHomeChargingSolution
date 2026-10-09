@@ -8,6 +8,7 @@
 | D2 | Commercial solution (`..\NablaPublicChargingSolution`) is a **read-only reference** only | No coupling: nothing is shared at runtime or build time; reused code is copied in |
 | D3 | Own OCPP gateway `EVOCPP/`, imported from commercial `OCPP_RD` at `8130e2e` with full history (git subtree), evolves independently | Home needs (smart charging, local auth list, simpler model) can diverge freely; no sync obligations either way |
 | D4 | Own infrastructure: Postgres DBs `nablahome` + `evocpp`, own RabbitMQ (vhost `/home`), own images | Full isolation from commercial production |
+| D10 | EVOCPP pushes `ChangeConfiguration(MeterValueSampleInterval = Ocpp:MeterValueSampleIntervalSeconds, default 60)` after every BootNotification | Wallbox Copper SB samples every ~300 s by default — too rare for the live screen; the setting persists on the charger, so it works without the backend |
 | D9 | Hosted on the shared demo Pi as a lean stack with per-container `mem_limit`; built and deployed by GitHub Actions (same scheme as commercial) | Pi has ~1 GB RAM; limits make Nabla Home the OOM victim, never other projects. See `docs/deployment.md` |
 | D5 | A charger is connected to exactly one system (commercial or home) | Moving a charger = changing its OCPP URL; no dual membership |
 | D6 | OCPP 1.6J first | Most common home wallboxes |
