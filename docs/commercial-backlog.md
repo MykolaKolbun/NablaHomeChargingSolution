@@ -66,3 +66,15 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   The API keeps the session Pending until its own watchdog fires.
 - **Reference implementation here:** EVOCPP — publish `Timeout` in the catch block.
 - **Found:** 2026-10-09, while adding charging-limit commands.
+
+## CB-007 · Power loss mid-session is reported as a normal stop
+- **Target:** `OCPP_RD/OCPPServer/OCPP1.6 Models/Communicator.cs` (`HandleStopTransaction`), `RabbitMqPublisher.PublishTransactionStoppedAsync`; consumer in EVChargingApi
+- **Status:** idea
+- **Why:** `StopTransaction.reason` is dropped, so a session cut by a power outage (`PowerLoss`,
+  sent after the charger reboots — observed on Wallbox Copper SB) looks like a regular stop and its
+  end time is when the queued message arrived (hours later), not when charging stopped. Commercial
+  could at least record the reason / use the StopTransaction `timestamp`; auto-resume is a product
+  decision (billing implications).
+- **Reference implementation here:** EVOCPP passes `reason` in `charger.transaction.stopped` and publishes
+  `charger.booted`; EVHomeAPI `SessionResumeService` (pause + RemoteStart under the same session).
+- **Found:** 2026-10-09, grid outage during a Wallbox test session.
