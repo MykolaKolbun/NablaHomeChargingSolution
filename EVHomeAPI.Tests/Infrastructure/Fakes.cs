@@ -70,3 +70,24 @@ public sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
     public override DateTimeOffset GetUtcNow() => _now;
     public void Advance(TimeSpan by) => _now += by;
 }
+
+public sealed class FakePushQueue : EVHomeAPI.Push.IPushQueue
+{
+    public ConcurrentQueue<EVHomeAPI.Push.PushEvent> Sent { get; } = new();
+    public void Enqueue(EVHomeAPI.Push.PushEvent e) => Sent.Enqueue(e);
+}
+
+public sealed class FakePushSender : EVHomeAPI.Push.IPushSender
+{
+    public ConcurrentQueue<(string Token, string Title, string Body)> Sent { get; } = new();
+    public HashSet<string> Invalid { get; } = [];
+    public bool Enabled => true;
+
+    public Task<EVHomeAPI.Push.PushResult> SendAsync(string token, string title, string body,
+        IReadOnlyDictionary<string, string> data, CancellationToken ct = default)
+    {
+        if (Invalid.Contains(token)) return Task.FromResult(EVHomeAPI.Push.PushResult.InvalidToken);
+        Sent.Enqueue((token, title, body));
+        return Task.FromResult(EVHomeAPI.Push.PushResult.Sent);
+    }
+}

@@ -10,6 +10,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<StationAccess> StationAccesses => Set<StationAccess>();
     public DbSet<ChargingSession>     Sessions      => Set<ChargingSession>();
     public DbSet<SessionMeterReading> MeterReadings => Set<SessionMeterReading>();
+    public DbSet<DeviceToken>         DeviceTokens  => Set<DeviceToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -62,6 +63,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping', 'Paused')")
                 .HasDatabaseName("IX_Sessions_OneOpenPerStation");
             e.HasIndex(s => s.TrackingId);
+        });
+
+        b.Entity<DeviceToken>(e =>
+        {
+            e.HasOne(d => d.User).WithMany().HasForeignKey(d => d.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(d => d.Token).IsUnique();
+            e.Property(d => d.Token).HasMaxLength(512);
+            e.Property(d => d.Platform).HasMaxLength(16);
+            e.Property(d => d.Language).HasMaxLength(8);
         });
 
         b.Entity<SessionMeterReading>(e =>

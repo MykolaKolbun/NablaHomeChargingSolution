@@ -2,6 +2,7 @@ using EVHomeAPI.Data;
 using EVHomeAPI.Hubs;
 using EVHomeAPI.Models;
 using EVHomeAPI.Ocpp;
+using EVHomeAPI.Push;
 using Microsoft.EntityFrameworkCore;
 
 namespace EVHomeAPI.Services;
@@ -22,6 +23,7 @@ public class SessionResumeService(
     AppDbContext db,
     IOcppCommandPublisher commands,
     INotifier notifier,
+    IPushQueue push,
     TimeProvider clock,
     ILogger<SessionResumeService> logger)
 {
@@ -51,6 +53,7 @@ public class SessionResumeService(
         s.CurrentPowerKw = 0;
         await db.SaveChangesAsync(ct);
         await notifier.SessionPaused(new SessionPausedMsg(s.StationId, s.Id, reason));
+        push.Enqueue(new PushEvent(s.StationId, PushKind.Paused, s.EnergyKwh));
     }
 
     /// <summary>
@@ -74,7 +77,10 @@ public class SessionResumeService(
         await db.SaveChangesAsync(ct);
 
         if (!wasPaused)
+        {
             await notifier.SessionPaused(new SessionPausedMsg(s.StationId, s.Id, "PowerLoss"));
+            push.Enqueue(new PushEvent(s.StationId, PushKind.Paused, s.EnergyKwh));
+        }
         await EvaluateAsync(station, s, ct);
     }
 
@@ -90,7 +96,7 @@ public class SessionResumeService(
 
         if (station.ConnectorStatus == "Available")
         {
-            await GiveUpAsync(s, "car unplugged", ct);
+            await GiveUpAsync(s, "Unplugged", ct);
             return;
         }
         if (!CarPlugged(station.ConnectorStatus)) return;   // Faulted / Unavailable / unknown — wait
@@ -98,7 +104,7 @@ public class SessionResumeService(
         if (s.ResumeRequestedAt is { } last && Now - last < RetryAfter) return;   // attempt in flight
         if (s.ResumeAttempts >= MaxAttempts)
         {
-            await GiveUpAsync(s, $"{MaxAttempts} resume attempts failed", ct);
+            await GiveUpAsync(s, "NotRestarted", ct);
             return;
         }
 
@@ -128,10 +134,10 @@ public class SessionResumeService(
         s.TrackingId = null;
         await db.SaveChangesAsync(ct);
         if (s.ResumeAttempts >= MaxAttempts)
-            await GiveUpAsync(s, $"resume {status}", ct);
+            await GiveUpAsync(s, "NotRestarted", ct);
     }
 
-    /// <summary>Ends a Paused session: energy as banked, end time = when the power went.</summary>
+    /// <summary>Ends a Paused session: energy as banked, end time = when the power went. why: Unplugged | NotRestarted | TooLong.</summary>
     public async Task GiveUpAsync(ChargingSession s, string why, CancellationToken ct = default)
     {
         logger.LogInformation("Session {SessionId}: not resumed ({Why})", s.Id, why);
@@ -141,6 +147,7 @@ public class SessionResumeService(
         s.CurrentPowerKw = 0;
         await db.SaveChangesAsync(ct);
         await notifier.SessionFinalized(new SessionFinalizedMsg(s.StationId, s.Id, s.EnergyKwh, null, s.StopReason.ToString()!));
+        push.Enqueue(new PushEvent(s.StationId, PushKind.ResumeFailed, s.EnergyKwh, why));
     }
 
     /// <summary>Watchdog pass over all Paused sessions.</summary>
@@ -155,7 +162,7 @@ public class SessionResumeService(
         {
             if (s.PausedAt is { } at && Now - at > MaxPause)
             {
-                await GiveUpAsync(s, "pause too long", ct);
+                await GiveUpAsync(s, "TooLong", ct);
                 continue;
             }
 

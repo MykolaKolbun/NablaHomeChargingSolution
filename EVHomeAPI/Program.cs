@@ -10,6 +10,7 @@ using System.Threading.RateLimiting;
 using EVHomeAPI.Data;
 using EVHomeAPI.Hubs;
 using EVHomeAPI.Ocpp;
+using EVHomeAPI.Push;
 using EVHomeAPI.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +55,13 @@ builder.Services.AddHttpClient("evocpp", c =>
 });
 builder.Services.AddHostedService<OcppEventConsumer>();
 builder.Services.AddHostedService<StaleSessionWatchdog>();
+
+// ── Push notifications (FCM HTTP v1; disabled without Fcm:ServiceAccountJsonBase64) ──
+builder.Services.AddSingleton(config.GetSection(FcmOptions.Section).Get<FcmOptions>() ?? new FcmOptions());
+builder.Services.AddHttpClient<IPushSender, FcmSender>(c => c.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton<PushQueue>();
+builder.Services.AddSingleton<IPushQueue>(sp => sp.GetRequiredService<PushQueue>());
+builder.Services.AddHostedService<PushWorker>();
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
     opt.UseNpgsql(config.GetConnectionString("Default")));

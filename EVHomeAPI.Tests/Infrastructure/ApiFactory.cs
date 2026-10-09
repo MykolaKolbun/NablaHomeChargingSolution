@@ -55,10 +55,12 @@ public class ApiFactory : WebApplicationFactory<Program>
             // No RabbitMQ in tests: drop background services, record commands/pushes instead.
             foreach (var d in services.Where(s => s.ServiceType == typeof(IHostedService) &&
                          (s.ImplementationType == typeof(OcppEventConsumer) ||
-                          s.ImplementationType == typeof(StaleSessionWatchdog))).ToList())
+                          s.ImplementationType == typeof(StaleSessionWatchdog) ||
+                          s.ImplementationType == typeof(EVHomeAPI.Push.PushWorker))).ToList())
                 services.Remove(d);
             Replace<IOcppCommandPublisher>(services, Commands);
             Replace<INotifier>(services, Notifier);
+            Replace<EVHomeAPI.Push.IPushQueue>(services, Push);
             Replace<TimeProvider>(services, Clock);
             Replace<DevToolsOptions>(services, DevTools);
             services.AddHttpClient("evocpp").ConfigurePrimaryHttpMessageHandler(() => Evocpp);
@@ -74,6 +76,7 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     public FakeCommandPublisher Commands { get; } = new();
     public FakeNotifier         Notifier { get; } = new();
+    public FakePushQueue        Push     { get; } = new();
     public ManualTimeProvider   Clock    { get; } = new(new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero));
 
     /// <summary>Feeds one EVOCPP event through the real processor (as the consumer would).</summary>

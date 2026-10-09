@@ -2,6 +2,7 @@ using System.Text.Json;
 using EVHomeAPI.Data;
 using EVHomeAPI.Hubs;
 using EVHomeAPI.Models;
+using EVHomeAPI.Push;
 using EVHomeAPI.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -23,6 +24,7 @@ public class OcppEventProcessor(
     DevCallRegistry devCalls,
     SessionResumeService resume,
     ChargingLimitService limits,
+    IPushQueue push,
     TimeProvider clock,
     ILogger<OcppEventProcessor> logger)
 {
@@ -109,6 +111,7 @@ public class OcppEventProcessor(
         session.PausedAt = null;
         await db.SaveChangesAsync(ct);
         await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, session.OcppTransactionId!.Value, session.MeterStartWh));
+        push.Enqueue(new PushEvent(station.Id, PushKind.Resumed, session.EnergyKwh));
     }
 
     // ── charger.booted ────────────────────────────────────────────────────────
@@ -167,6 +170,7 @@ public class OcppEventProcessor(
             logger.LogInformation("Station {OcppId}: session {SessionId} resumed with transaction {TxId}",
                 e.OcppId, session.Id, e.TransactionId);
             await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, e.TransactionId, e.MeterStartWh));
+            push.Enqueue(new PushEvent(station.Id, PushKind.Resumed, session.EnergyKwh));
             return;
         }
 
@@ -233,6 +237,7 @@ public class OcppEventProcessor(
             session.Status   = SessionStatus.Active;          // meter of the old transaction → it survived
             session.PausedAt = null;
             await notifier.SessionStarted(new SessionStartedMsg(station.Id, session.Id, session.OcppTransactionId.Value, session.MeterStartWh));
+            push.Enqueue(new PushEvent(station.Id, PushKind.Resumed, session.EnergyKwh));
         }
 
         // Baseline: what StartTransaction reported, else EVOCPP's restored value, else the first reading.
@@ -292,6 +297,8 @@ public class OcppEventProcessor(
         await db.SaveChangesAsync(ct);
 
         await notifier.SessionFinalized(new SessionFinalizedMsg(station.Id, session.Id, session.EnergyKwh, null, reason.ToString()));
+        if (reason == SessionStopReason.ChargerInitiated)   // car full / stopped at the charger — not what the user just pressed
+            push.Enqueue(new PushEvent(station.Id, PushKind.Completed, session.EnergyKwh));
     }
 
     private void CloseSession(ChargingSession session, decimal? meterStopWh, SessionStopReason reason)

@@ -92,6 +92,7 @@ jobs:
           HOME_RABBITMQ_PASSWORD: ${{ secrets.HOME_RABBITMQ_PASSWORD }}
           HOME_JWT_KEY:           ${{ secrets.HOME_JWT_KEY }}
           HOME_ADMIN_KEY:         ${{ secrets.HOME_ADMIN_KEY }}
+          HOME_FCM_SERVICE_ACCOUNT_B64: ${{ secrets.HOME_FCM_SERVICE_ACCOUNT_B64 }}   # optional: push off when empty
         run: |
           if [ ${#HOME_JWT_KEY} -lt 32 ] || [ ${#HOME_ADMIN_KEY} -lt 24 ]; then
             echo "::error::Set repository secrets HOME_JWT_KEY (>=32 chars) and HOME_ADMIN_KEY (>=24 chars)"
@@ -101,8 +102,9 @@ jobs:
           scp -F ~/.ssh/config deploy/docker-compose.yml "$PI":~/NablaHome/docker-compose.yml
           # Secrets: GitHub Secrets → env → stdin → ~/NablaHome/.env (never in command args).
           # Upsert per key so keys written by the evocpp workflow are preserved.
-          printf "HOME_DB_PASSWORD=%s\nHOME_RABBITMQ_PASSWORD=%s\nHOME_JWT_KEY=%s\nHOME_ADMIN_KEY=%s\n" \
-            "$HOME_DB_PASSWORD" "$HOME_RABBITMQ_PASSWORD" "$HOME_JWT_KEY" "$HOME_ADMIN_KEY" | \
+          printf "HOME_DB_PASSWORD=%s\nHOME_RABBITMQ_PASSWORD=%s\nHOME_JWT_KEY=%s\nHOME_ADMIN_KEY=%s\nHOME_FCM_SERVICE_ACCOUNT_B64=%s\n" \
+            "$HOME_DB_PASSWORD" "$HOME_RABBITMQ_PASSWORD" "$HOME_JWT_KEY" "$HOME_ADMIN_KEY" \
+            "$(printf %s "$HOME_FCM_SERVICE_ACCOUNT_B64" | tr -d '\r\n ')" | \
             ssh "$PI" '
               touch ~/NablaHome/.env && chmod 600 ~/NablaHome/.env
               while IFS= read -r line; do

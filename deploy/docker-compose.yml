@@ -3,7 +3,8 @@
 # Lives on the Pi at ~/NablaHome/docker-compose.yml (copied by CI).
 # Secrets come from ~/NablaHome/.env (upserted by CI from GitHub Secrets):
 #   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_TRACE_DOWNLOAD_KEY  (evocpp workflow)
-#   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_JWT_KEY, HOME_ADMIN_KEY (evhomeapi workflow)
+#   HOME_DB_PASSWORD, HOME_RABBITMQ_PASSWORD, HOME_JWT_KEY, HOME_ADMIN_KEY,
+#   HOME_FCM_SERVICE_ACCOUNT_B64 (optional; empty = no push)        (evhomeapi workflow)
 #
 # Memory: every service has mem_limit so that, under pressure, only Nabla Home
 # containers get OOM-killed — never the other projects on the same Pi.
@@ -108,6 +109,8 @@ services:
       # EVHomeAPI itself refuses to start in Production without strong values.
       - Jwt__Key=${HOME_JWT_KEY:-}
       - AdminKey=${HOME_ADMIN_KEY:-}
+      # Firebase service account JSON, base64 (push notifications). Empty = push disabled.
+      - Fcm__ServiceAccountJsonBase64=${HOME_FCM_SERVICE_ACCOUNT_B64:-}
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=nablahome
       - RabbitMQ__Password=${HOME_RABBITMQ_PASSWORD}
