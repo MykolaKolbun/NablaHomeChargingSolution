@@ -14,6 +14,7 @@
  *   charger.transaction.started  — StartTransaction confirmed by the charger
  *   charger.transaction.stopped  — StopTransaction confirmed by the charger
  *   charger.meter.updated        — MeterValues received; carries live energy + power
+ *   charger.booted               — BootNotification accepted, post-boot setup done
  */
 
 using System.Text;
@@ -150,11 +151,21 @@ public static class RabbitMqPublisher
     /// Charger confirmed StopTransaction. Includes transactionId so EVChargingApi
     /// can reject stale stop events that belong to an older transaction, plus
     /// meterStopWh and meterStartWh to calculate the real energy delta.
+    /// reason: OCPP stop reason as sent by the charger (PowerLoss, EVDisconnected, Remote,
+    /// Local, ...); null when the charger omitted it.
     /// </summary>
     public static Task PublishTransactionStoppedAsync(
-        string ocppId, int transactionId, decimal meterStopWh, decimal? meterStartWh)
+        string ocppId, int transactionId, decimal meterStopWh, decimal? meterStartWh, string? reason = null)
         => PublishAsync("charger.transaction.stopped",
-            new { ocppId, transactionId, meterStopWh, meterStartWh });
+            new { ocppId, transactionId, meterStopWh, meterStartWh, reason });
+
+    /// <summary>
+    /// Charger (re)booted: BootNotification accepted and post-boot configuration sent.
+    /// A reboot may wipe volatile charger state, so the backend re-pushes what it owns
+    /// (the current-limit profile).
+    /// </summary>
+    public static Task PublishBootedAsync(string ocppId)
+        => PublishAsync("charger.booted", new { ocppId });
 
     /// <summary>
     /// Charger sent MeterValues. Carries live energy and instantaneous power

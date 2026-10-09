@@ -251,8 +251,22 @@ namespace OCPPServer.OCPP1._6_Models
 
             // After Boot is accepted the charger takes CALLs. Not awaited here: this method runs
             // on the socket's receive loop, which must stay free to read the CALLRESULT.
+            _ = AfterBootAsync(socket, connectorId);
+        }
+
+        /// <summary>
+        /// Post-boot setup, then charger.booted so the backend can re-push state a reboot may
+        /// have wiped (the current-limit profile). Best effort — never throws.
+        /// </summary>
+        private async Task AfterBootAsync(WebSocket socket, string stationId)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(2));   // let the charger finish its boot sequence
+            if (socket.State != WebSocketState.Open) return;
+
             if (_meterValueSampleInterval > 0)
-                _ = ConfigureMeterSamplingAsync(socket, connectorId);
+                await ConfigureMeterSamplingAsync(socket, stationId);
+
+            _ = RabbitMqPublisher.PublishBootedAsync(stationId);
         }
 
         /// <summary>ChangeConfiguration(MeterValueSampleInterval). Best effort — logged, never thrown.</summary>
@@ -260,9 +274,6 @@ namespace OCPPServer.OCPP1._6_Models
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(2));   // let the charger finish its boot sequence
-                if (socket.State != WebSocketState.Open) return;
-
                 var result = await SendChangeConfiguration(socket, stationId,
                     "MeterValueSampleInterval", _meterValueSampleInterval.ToString());
                 var status = result["status"]?.Value<string>() ?? "Unknown";   // Accepted | Rejected | RebootRequired | NotSupported
@@ -450,6 +461,7 @@ namespace OCPPServer.OCPP1._6_Models
         {
             var stoppedTxId  = payload["transactionId"]?.Value<int?>() ?? 0;
             var meterStopRaw = payload["meterStop"]?.Value<decimal?>();
+            var stopReason   = payload["reason"]?.Value<string>();   // optional in 1.6 (absent = Local)
             _tracer.Info("StopTransaction",
                 $"{stationId}: txId={stoppedTxId} meterStop={meterStopRaw}",
                 chargePointId: stationId, sessionId: stoppedTxId);
@@ -492,7 +504,7 @@ namespace OCPPServer.OCPP1._6_Models
 
             if (meterStopRaw.HasValue)
                 _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
-                    stationId, stoppedTxId, meterStopRaw.Value, meterStartForStop);
+                    stationId, stoppedTxId, meterStopRaw.Value, meterStartForStop, stopReason);
         }
 
         public async Task HandleMeterValueNotification(WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)

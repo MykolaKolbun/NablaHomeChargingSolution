@@ -151,7 +151,8 @@ Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `Transactio
   "ocppId":        "CP-001",
   "transactionId": 42,
   "meterStopWh":   18750.00,
-  "meterStartWh":  12500.00
+  "meterStartWh":  12500.00,
+  "reason":        "PowerLoss"
 }
 ```
 
@@ -161,6 +162,9 @@ Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `Transactio
 | `transactionId` | `int` | OCPP transaction ID |
 | `meterStopWh` | `decimal` | Energy meter reading at session end (Wh) |
 | `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if unavailable |
+| `reason` | `string?` | OCPP 1.6 `StopTransaction.reason` as sent (`PowerLoss`, `EVDisconnected`, `Remote`, `Local`, `Reboot`, …); `null` when omitted (= `Local`) or on OCPP 2.x |
+
+A charger that lost power mid-session typically reports it after the reboot: `BootNotification` → `StatusNotification` → queued `StopTransaction` with `reason: "PowerLoss"` (Wallbox Copper SB, fw 6.7.38).
 
 **Energy consumed** = `meterStopWh - meterStartWh`
 
@@ -289,6 +293,16 @@ Result of `command.dev.call` (§4.8).
 | `requestId` | Echo of the command's `requestId` |
 | `status` | `Ok` (charger answered), `Invalid` (action/payload rejected by the whitelist), `NotConnected`, `NotSupported` (OCPP 2.x), `Timeout`, `Error` |
 | `result` | `Ok`: the charger's raw CALLRESULT payload; otherwise a reason string or `null` |
+
+### 3.12 `charger.booted` (OCPP 1.6)
+
+Published ~2 s after a `BootNotification` is accepted, once post-boot configuration
+(`MeterValueSampleInterval`) has been sent. A reboot may wipe volatile charger state, so
+consumers re-push what they own (e.g. the current-limit profile, §4.6).
+
+```json
+{ "ocppId": "03012" }
+```
 
 ---
 
