@@ -136,7 +136,7 @@
 | `MaxTransactionEnergy` | 0 | зупинити транзакцію після N енергії (одиниці невідомі — Wh чи kWh); 0 = вимкнено |
 | `MaxTransactionSoC` | 0 | зупинити на SoC N % |
 | `MaxTransactionDuration` | 0 | зупинити через N (хв / с?) |
-| `EnergyLimitToStopCharging` | 0 | ще один поріг енергії — різниця з `MaxTransactionEnergy` невідома |
+| `EnergyLimitToStopCharging` | 0 | ще один поріг енергії — різниця з `MaxTransactionEnergy` невідома. Гіпотеза: «зупинити подачу» (транзакція лишається відкритою, `SuspendedEVSE`) на противагу «завершити транзакцію»; може бути пов'язаний з PoS-оплатою (`CreditCardPreAuthorizeAmount` / `CreditCardPricePerKwh`, `CustomIdleFeeAfterStop`). Публічної документації немає (пошук 2026-11-05). Тест: значення `1` — зупинка майже одразу ⇒ Wh, після ~1 кВт·год ⇒ kWh |
 | `MaxEnergyOnInvalidId` | 5000 | скільки можна зарядити, якщо idTag виявився недійсним (офлайн-авторизація), імовірно Wh |
 
 Стандартного ліміту енергії на транзакцію в OCPP 1.6 немає; ці ключі — вендорське розширення Wallbox.
