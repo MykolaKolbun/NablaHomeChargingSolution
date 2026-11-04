@@ -116,3 +116,21 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 - **Reference here:** `docs/hardware/supernova-669850.md` (all event timelines) and
   `docs/hardware/supernova-669850-config.json` (full GetConfiguration, 99 keys).
 - **Found:** 2026-11-04 / 2026-11-05.
+
+## CB-009 · Limit losses when a charger loses the backend mid-session
+- **Target:** OCPP_RD (per-session config writes), EVChargingApi (prepaid sessions, offline policy)
+- **Status:** idea — needs Supernova test T1/T2 first
+- **Why:** if the connection drops, RemoteStop cannot reach the charger; a prepaid session keeps charging
+  until the car is full. Options (Wallbox vendor keys, see CB-008):
+  1. **Prepaid:** at start, `ChangeConfiguration MaxTransactionEnergy` / `EnergyLimitToStopCharging` =
+     paid + small tolerance — the charger stops by itself offline. One write per session.
+  2. **Dead-man timer** (sessions without an energy cap): while the connection is alive, periodically extend
+     `MaxTransactionDuration` to `elapsed + margin`; lost connection ⇒ charger stops within the margin
+     (60 kW × 2 min ≈ 2 kWh). Extend on a successful ChangeConfiguration reply, not on MeterValues; keep the
+     write rate low (flash wear: e.g. every 5 min to +10 min); the key is per station ⇒ use the oldest transaction.
+  3. **Offline authorization is the bigger hole:** Supernova ships with `LocalAuthorizeOffline = true`,
+     `AllowOfflineTxForUnknownId = true` — offline, anyone can start (capped only by
+     `MaxEnergyOnInvalidId = 5000`). Decide the public-charger policy and set it at onboarding.
+  Unknown until tested: units, whether a change applies to a running transaction, StopTransaction `reason`.
+- **Reference here:** `docs/hardware/supernova-669850.md` → «План тестів» T1/T2.
+- **Found:** 2026-11-05, design discussion during Supernova repair.
