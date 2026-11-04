@@ -86,8 +86,8 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   (it ignores `currentTime` from BootNotification.conf), so all its OCPP timestamps are wrong — the
   backend should not trust charger timestamps blindly (session times, StopTransaction). On fw 4.6.16 it
   connects as ONE charge point with connectorId 1/2; the same unit on fw 4.2.69 showed up in Skidata as two
-  charge points `WBX669850` + `WBX669850#2` (1 connector each) — unconfirmed whether the old firmware opened
-  two connections or Skidata split one station per connector. Onboarding should handle both shapes. `ChargeProfileMaxStackLevel = 0`,
+  charge points `WBX669850` + `WBX669850#2` (1 connector each) — most likely Skidata's own per-parking-space
+  split (asymmetric ids; unverifiable, no logs). Treat Supernova as one charge point with connectorId 1/2. `ChargeProfileMaxStackLevel = 0`,
   `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
   It DOES report hardware faults: `errorCode = OtherError`, Wallbox code in `vendorErrorCode`
   (`DCF:PMO:003:HWR:OF2`, `DCF:CCS:001:ISO:TMO`), text in `info` — show these to the operator.
