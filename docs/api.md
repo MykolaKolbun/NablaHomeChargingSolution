@@ -151,6 +151,7 @@ Event names and payloads are identical to the commercial Nabla app (`totalCost` 
 | POST | `/api/admin/stations/{ocppId}/claim-code` | — | `200 {…, claimCode}` new code, old one invalid |
 
 The claim code appears **only** in these responses; the database stores a BCrypt hash.
+Step-by-step onboarding (charger OCPP settings → create → claim → verify): [adding-a-charger.md](adding-a-charger.md).
 
 ```bash
 curl -s -X POST https://home-api.alternatiview.com.ua/api/admin/stations \
