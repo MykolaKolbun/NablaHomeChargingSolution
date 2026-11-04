@@ -26,8 +26,9 @@
   помилка актуальна, неправильний годинник. `TimeZone = Europe/Kyiv`.
 - **Помилка DC-лічильників (DCF:PMD:001/002:COM:000, Degraded) в OCPP не видно**: роз'єми звітують
   `Available` / `NoError`, `vendorErrorCode` порожній.
-- OCPP-Heartbeat не надходить (за 40 хв — жодного), хоча `HeartbeatInterval = 300`; з'єднання тримається
-  WebSocket-пінгами (`WebSocketPingInterval = 50`), офлайн EVOCPP її не позначає.
+- Heartbeat приходить (перший о 17:38:40 після Boot о 17:33:45); з'єднання додатково тримається
+  WebSocket-пінгами (`WebSocketPingInterval = 50`).
+- `TriggerMessage(StatusNotification)` → `Accepted`, статуси роз'ємів 0/1/2 — `Available` / `NoError`: помилки лічильників немає і на прямий запит.
 - `MeterValueSampleInterval = 60` прийняла (EVOCPP ставить після Boot).
 
 ## Ключові параметри (повний список — [supernova-669850-config.json](supernova-669850-config.json), 99 ключів)

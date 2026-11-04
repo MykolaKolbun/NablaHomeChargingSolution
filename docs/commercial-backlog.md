@@ -86,7 +86,7 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   (DCF:PMD:00x:COM:000, Degraded) in its local UI, yet over OCPP both connectors reported
   `Available` / `NoError` with empty `vendorErrorCode` — an operator would not see the fault.
   Its clock was stuck at 2025-02-13 (it ignores `currentTime` from BootNotification.conf), so all
-  OCPP timestamps are wrong. It sends no OCPP Heartbeat (keeps the socket with WS pings).
+  OCPP timestamps are wrong. Even TriggerMessage(StatusNotification) returns NoError.
   It connects as ONE charge point with connectorId 1/2. `ChargeProfileMaxStackLevel = 0`,
   `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
 - **Reference here:** `docs/hardware/supernova-669850.md` (+ full GetConfiguration JSON).
