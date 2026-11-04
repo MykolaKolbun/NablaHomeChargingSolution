@@ -1,6 +1,8 @@
 # Wallbox Supernova 60 kW — SN 669850 (тестова, позичена)
 
 Чужа DC-станція на ремонті; тимчасово підключена до Nabla Home EVOCPP для тестів (2026-11-04).
+Мета тестів — **публічне рішення** (вдома швидкі зарядки не очікуються): Nabla Home тут — діагностичний стенд.
+Висновки для комерційної версії — у [CB-008](../commercial-backlog.md).
 
 > **Повернути після тесту:** `ConnectionUrl` = `wss://ocpp.1up.energy/websocket/CentralSystemService/`,
 > `ChargePointId` = `WBX669850` (не змінювався). Перед цим — `ClearChargingProfile`, якщо ставили профілі.
