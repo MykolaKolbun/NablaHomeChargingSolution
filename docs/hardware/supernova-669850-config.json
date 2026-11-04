@@ -1,0 +1,501 @@
+{
+  "capturedAt": "2026-11-04",
+  "firmware": "4.6.16",
+  "configurationKey": [
+    {
+      "readonly": false,
+      "key": "AllowOfflineTxForUnknownId",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "APPAuthenticationOnScreen",
+      "value": "Enabled"
+    },
+    {
+      "readonly": false,
+      "key": "AssistancePhoneNumber",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "AuthDisabledIdTag",
+      "value": "NoAuthorization"
+    },
+    {
+      "readonly": false,
+      "key": "AuthEnabled",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "AuthorizationCacheEnabled",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "AuthorizeRemoteTxRequests",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "AutoChargeEnabled",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "BlinkRepeat",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "ChargePointId",
+      "value": "WBX669850"
+    },
+    {
+      "readonly": true,
+      "key": "ChargeProfileMaxStackLevel",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "ChargerDisplayedID",
+      "value": "SerialNumber"
+    },
+    {
+      "readonly": true,
+      "key": "ChargingScheduleAllowedChargingRateUnit",
+      "value": "Current,Power"
+    },
+    {
+      "readonly": true,
+      "key": "ChargingScheduleMaxPeriods",
+      "value": "1"
+    },
+    {
+      "readonly": false,
+      "key": "ChargingWLimitConn0",
+      "value": "60000.000000"
+    },
+    {
+      "readonly": false,
+      "key": "ChargingWLimitConn1",
+      "value": "60000.000000"
+    },
+    {
+      "readonly": false,
+      "key": "ChargingWLimitConn2",
+      "value": "60000.000000"
+    },
+    {
+      "readonly": false,
+      "key": "ClockAlignedDataInterval",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "ConnectionTimeOut",
+      "value": "120"
+    },
+    {
+      "readonly": false,
+      "key": "ConnectionUrl",
+      "value": "wss://home-ocpp.alternatiview.com.ua/ws"
+    },
+    {
+      "readonly": false,
+      "key": "ConnectorPhaseRotation",
+      "value": "0.Unknown,1.NotApplicable,2.NotApplicable"
+    },
+    {
+      "readonly": true,
+      "key": "ConnectorPhaseRotationMaxLength",
+      "value": "3"
+    },
+    {
+      "readonly": false,
+      "key": "ConnectorsPluggedMessage",
+      "value": "false"
+    },
+    {
+      "readonly": true,
+      "key": "ConnectorSwitch3to1PhaseSupported",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "CreditCardCurrency",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "CreditCardId",
+      "value": "PoSIdTag"
+    },
+    {
+      "readonly": false,
+      "key": "CreditCardPreAuthorizeAmount",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "CreditCardPricePerKwh",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "CustomDisplayCostAndPrice",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "CustomIdleFeeAfterStop",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "DailyRebootTime",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "DefaultCustomerReceipt",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "DefaultPrice",
+      "value": "{\"chargingPrice\":{\"flatFee\":0.0,\"hourPrice\":0.0,\"kWhPrice\":0.0},\"priceText\":\"\",\"priceTextOffline\":\"\"}"
+    },
+    {
+      "readonly": false,
+      "key": "Endianness",
+      "value": "BigEndian"
+    },
+    {
+      "readonly": false,
+      "key": "EnergyCalculationMethod",
+      "value": "Truncation"
+    },
+    {
+      "readonly": false,
+      "key": "EnergyLimitToStopCharging",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "EvConnectedOnStatusNotification",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "FwUpdateLocationEnabled",
+      "value": "false"
+    },
+    {
+      "readonly": true,
+      "key": "GetConfigurationMaxKeys",
+      "value": "50"
+    },
+    {
+      "readonly": false,
+      "key": "HeartbeatInterval",
+      "value": "300"
+    },
+    {
+      "readonly": false,
+      "key": "HoseLockConfiguration",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "LightIntensity",
+      "value": "50"
+    },
+    {
+      "readonly": false,
+      "key": "LocalAuthListEnabled",
+      "value": "true"
+    },
+    {
+      "readonly": true,
+      "key": "LocalAuthListMaxLength",
+      "value": "5000000"
+    },
+    {
+      "readonly": false,
+      "key": "LocalAuthorizeOffline",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "LocalPreAuthorize",
+      "value": "true"
+    },
+    {
+      "readonly": true,
+      "key": "MaxChargingProfilesInstalled",
+      "value": "6"
+    },
+    {
+      "readonly": false,
+      "key": "MaxEnergyOnInvalidId",
+      "value": "5000"
+    },
+    {
+      "readonly": false,
+      "key": "MaxTransactionDuration",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "MaxTransactionEnergy",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "MaxTransactionSoC",
+      "value": "0"
+    },
+    {
+      "readonly": true,
+      "key": "MeterPublicKey1",
+      "value": ""
+    },
+    {
+      "readonly": true,
+      "key": "MeterPublicKey2",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "MeterValuesAlignedData",
+      "value": "Current.Import,Current.Offered,Energy.Active.Import.Register,Frequency,Power.Active.Import,Power.Factor,Power.Offered,SoC,Voltage"
+    },
+    {
+      "readonly": true,
+      "key": "MeterValuesAlignedDataMaxLength",
+      "value": "10"
+    },
+    {
+      "readonly": false,
+      "key": "MeterValueSampleInterval",
+      "value": "60"
+    },
+    {
+      "readonly": false,
+      "key": "MeterValuesLocation",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "MeterValuesSampledData",
+      "value": "Current.Import,Current.Offered,Energy.Active.Import.Register,Frequency,Power.Active.Import,Power.Factor,Power.Offered,SoC,Voltage"
+    },
+    {
+      "readonly": true,
+      "key": "MeterValuesSampledDataMaxLength",
+      "value": "10"
+    },
+    {
+      "readonly": false,
+      "key": "MinimumStatusDuration",
+      "value": "1"
+    },
+    {
+      "readonly": false,
+      "key": "NoiseMode",
+      "value": "Standard"
+    },
+    {
+      "readonly": true,
+      "key": "NumberOfConnectors",
+      "value": "2"
+    },
+    {
+      "readonly": false,
+      "key": "OutletID1",
+      "value": "1"
+    },
+    {
+      "readonly": false,
+      "key": "OutletID2",
+      "value": "2"
+    },
+    {
+      "readonly": false,
+      "key": "PartialEnergyOnMeterValues",
+      "value": "false"
+    },
+    {
+      "readonly": true,
+      "key": "PartNumber",
+      "value": "DCF1-211-84600000-WB1-00-00-00"
+    },
+    {
+      "readonly": false,
+      "key": "PoSEnable",
+      "value": "Deactivated"
+    },
+    {
+      "readonly": false,
+      "key": "PublicKeyWithSignedMeterValue",
+      "value": "Never"
+    },
+    {
+      "readonly": false,
+      "key": "RequireSecondAuthForAutocharge",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "RequireSecondAuthForPOS",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "RequireSecondAuthForRemoteStop",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "RequireSecondAuthForRFID",
+      "value": "false"
+    },
+    {
+      "readonly": true,
+      "key": "ReserveConnectorZeroSupported",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "ResetRetries",
+      "value": "0"
+    },
+    {
+      "readonly": false,
+      "key": "SampledDataSignReadings",
+      "value": "false"
+    },
+    {
+      "readonly": true,
+      "key": "SendLocalListMaxLength",
+      "value": "450"
+    },
+    {
+      "readonly": false,
+      "key": "SignedIntermediateMeterValues",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "SignedMeterValuesEncoding",
+      "value": "ASCII"
+    },
+    {
+      "readonly": false,
+      "key": "SMSReceiptOption",
+      "value": "Disabled"
+    },
+    {
+      "readonly": false,
+      "key": "SplitChargeConfiguration",
+      "value": "Enabled"
+    },
+    {
+      "readonly": true,
+      "key": "StopTransactionMaxMeterValues",
+      "value": "75"
+    },
+    {
+      "readonly": false,
+      "key": "StopTransactionOnEVSideDisconnect",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "StopTransactionOnInvalidId",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "StopTxnAlignedData",
+      "value": ""
+    },
+    {
+      "readonly": true,
+      "key": "StopTxnAlignedDataMaxLength",
+      "value": "100"
+    },
+    {
+      "readonly": false,
+      "key": "StopTxnSampledData",
+      "value": ""
+    },
+    {
+      "readonly": true,
+      "key": "StopTxnSampledDataMaxLength",
+      "value": "100"
+    },
+    {
+      "readonly": true,
+      "key": "SupportedFeatureProfiles",
+      "value": "Core,LocalAuthListManagement,RemoteTrigger,Reservation,SmartCharging"
+    },
+    {
+      "readonly": true,
+      "key": "SupportedFeatureProfilesMaxLength",
+      "value": "5"
+    },
+    {
+      "readonly": true,
+      "key": "SupportedFileTransferProtocols",
+      "value": "ftp,http"
+    },
+    {
+      "readonly": false,
+      "key": "TimeUI",
+      "value": "All"
+    },
+    {
+      "readonly": false,
+      "key": "TimeZone",
+      "value": "Europe/Kyiv"
+    },
+    {
+      "readonly": false,
+      "key": "TollPhoneReceiptOption",
+      "value": ""
+    },
+    {
+      "readonly": false,
+      "key": "TransactionEventsEnabled",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "TransactionMessageAttempts",
+      "value": "3"
+    },
+    {
+      "readonly": false,
+      "key": "TransactionMessageRetryInterval",
+      "value": "60"
+    },
+    {
+      "readonly": false,
+      "key": "UnlockConnectorOnEVSideDisconnect",
+      "value": "true"
+    },
+    {
+      "readonly": false,
+      "key": "VehicleIDEnable",
+      "value": "false"
+    },
+    {
+      "readonly": false,
+      "key": "WebSocketPingInterval",
+      "value": "50"
+    }
+  ]
+}

@@ -78,3 +78,16 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 - **Reference implementation here:** EVOCPP passes `reason` in `charger.transaction.stopped` and publishes
   `charger.booted`; EVHomeAPI `SessionResumeService` (pause + RemoteStart under the same session).
 - **Found:** 2026-10-09, grid outage during a Wallbox test session.
+
+## CB-008 · Supernova faults are invisible over OCPP; its clock is wrong
+- **Target:** EVChargingApi / OCPP_RD station health monitoring; Supernova onboarding (PR-011)
+- **Status:** idea
+- **Why:** Wallbox Supernova SN 669850 (fw 4.6.16) showed "DC meter 1/2 not able to communicate"
+  (DCF:PMD:00x:COM:000, Degraded) in its local UI, yet over OCPP both connectors reported
+  `Available` / `NoError` with empty `vendorErrorCode` — an operator would not see the fault.
+  Its clock was stuck at 2025-02-13 (it ignores `currentTime` from BootNotification.conf), so all
+  OCPP timestamps are wrong. It sends no OCPP Heartbeat (keeps the socket with WS pings).
+  It connects as ONE charge point with connectorId 1/2. `ChargeProfileMaxStackLevel = 0`,
+  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
+- **Reference here:** `docs/hardware/supernova-669850.md` (+ full GetConfiguration JSON).
+- **Found:** 2026-11-04, Supernova connected to Nabla Home EVOCPP during repair.
