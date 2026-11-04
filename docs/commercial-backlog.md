@@ -84,8 +84,9 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 - **Status:** idea
 - **Why:** Wallbox Supernova SN 669850 (fw 4.6.16, OCPP 1.6 only): its clock was stuck at 2025-02-13
   (it ignores `currentTime` from BootNotification.conf), so all its OCPP timestamps are wrong — the
-  backend should not trust charger timestamps blindly (session times, StopTransaction). It connects as
-  ONE charge point with connectorId 1/2 (not per-connector ids). `ChargeProfileMaxStackLevel = 0`,
+  backend should not trust charger timestamps blindly (session times, StopTransaction). On fw 4.6.16 it
+  connects as ONE charge point with connectorId 1/2; the same unit on fw 4.2.69 (Skidata) connected as two
+  charge points `WBX669850` + `WBX669850#2` (1 connector each) — onboarding must handle both modes. `ChargeProfileMaxStackLevel = 0`,
   `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
   It DOES report hardware faults: `errorCode = OtherError`, Wallbox code in `vendorErrorCode`
   (`DCF:PMO:003:HWR:OF2`, `DCF:CCS:001:ISO:TMO`), text in `info` — show these to the operator.
