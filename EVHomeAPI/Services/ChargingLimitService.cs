@@ -18,6 +18,9 @@ public class ChargingLimitService(
     TimeProvider clock,
     ILogger<ChargingLimitService> logger)
 {
+    /// <summary>LimitStatus of a station with ManageLimit = false.</summary>
+    public const string Unmanaged = "Unmanaged";
+
     public static decimal EffectiveLimit(Station s) => s.CurrentLimitA ?? s.MaxCurrentA;
 
     /// <summary>
@@ -27,6 +30,12 @@ public class ChargingLimitService(
     /// </summary>
     public async Task<bool> ApplyAsync(Station station, CancellationToken ct = default)
     {
+        if (!station.ManageLimit)
+        {
+            logger.LogInformation("Station {OcppId}: limit management off — no charging profile sent", station.OcppId);
+            return true;
+        }
+
         var runningTx = await db.Sessions
             .Where(s => s.StationId == station.Id && (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
             .Select(s => s.OcppTransactionId)

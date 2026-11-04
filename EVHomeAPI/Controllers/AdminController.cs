@@ -21,7 +21,7 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, Ch
     [HttpPost("stations")]
     public async Task<ActionResult<CreateStationResponse>> CreateStation(CreateStationRequest req)
     {
-        var ocppId = req.OcppId.Trim();
+        var ocppId = OcppIds.Normalize(req.OcppId);
         if (await db.Stations.AnyAsync(s => s.OcppId == ocppId))
             return Conflict($"Station '{ocppId}' already exists.");
 
@@ -31,6 +31,8 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, Ch
             OcppId        = ocppId,
             Name          = req.Name.Trim(),
             MaxCurrentA   = req.MaxCurrentA,
+            ManageLimit   = req.ManageLimit,
+            LimitStatus   = req.ManageLimit ? null : ChargingLimitService.Unmanaged,
             ClaimCodeHash = BCrypt.Net.BCrypt.HashPassword(ClaimCode.Normalize(code)),
         };
         db.Stations.Add(station);
@@ -44,7 +46,7 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, Ch
     [HttpPost("stations/{ocppId}/claim-code")]
     public async Task<ActionResult<CreateStationResponse>> ResetClaimCode(string ocppId)
     {
-        var station = await db.Stations.FirstOrDefaultAsync(s => s.OcppId == ocppId);
+        var station = await FindAsync(ocppId);
         if (station is null) return NotFound();
 
         var code = ClaimCode.Generate();
@@ -62,7 +64,7 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, Ch
     [HttpPut("stations/{ocppId}/max-current")]
     public async Task<ActionResult<object>> SetMaxCurrent(string ocppId, SetMaxCurrentRequest req)
     {
-        var station = await db.Stations.FirstOrDefaultAsync(s => s.OcppId == ocppId);
+        var station = await FindAsync(ocppId);
         if (station is null) return NotFound();
 
         station.MaxCurrentA = req.MaxCurrentA;
@@ -71,5 +73,31 @@ public class AdminController(AppDbContext db, IOcppCommandPublisher commands, Ch
 
         var pushed = station.IsOnline && await limits.ApplyAsync(station);
         return Ok(new { station.OcppId, station.MaxCurrentA, station.CurrentLimitA, station.LimitStatus, pushed });
+    }
+
+    /// <summary>
+    /// Turn automatic current-limit management on or off. Off: EVHomeAPI never sends a charging
+    /// profile to this charger (not on claim, boot or user change) — for chargers it must not
+    /// throttle, e.g. a borrowed DC charger under test. Turning it off does NOT clear a profile the
+    /// charger already holds. Turning it on pushes the effective limit right away (if online).
+    /// </summary>
+    [HttpPut("stations/{ocppId}/limit-management")]
+    public async Task<ActionResult<object>> SetLimitManagement(string ocppId, SetLimitManagementRequest req)
+    {
+        var station = await FindAsync(ocppId);
+        if (station is null) return NotFound();
+
+        station.ManageLimit = req.ManageLimit;
+        if (!req.ManageLimit) station.LimitStatus = ChargingLimitService.Unmanaged;
+        await db.SaveChangesAsync();
+
+        var pushed = req.ManageLimit && station.IsOnline && await limits.ApplyAsync(station);
+        return Ok(new { station.OcppId, station.ManageLimit, station.MaxCurrentA, station.LimitStatus, pushed });
+    }
+
+    private Task<Station?> FindAsync(string ocppId)
+    {
+        var id = OcppIds.Normalize(ocppId);
+        return db.Stations.FirstOrDefaultAsync(s => s.OcppId == id);
     }
 }

@@ -56,8 +56,11 @@ public class OcppEventProcessor(
     private static T Parse<T>(string json) =>
         JsonSerializer.Deserialize<T>(json, Json) ?? throw new JsonException($"Empty {typeof(T).Name}");
 
-    private Task<Station?> FindStation(string ocppId, CancellationToken ct) =>
-        db.Stations.FirstOrDefaultAsync(s => s.OcppId == ocppId, ct);
+    private Task<Station?> FindStation(string ocppId, CancellationToken ct)
+    {
+        var id = OcppIds.Normalize(ocppId);   // EVOCPP already sends lower-case; be safe
+        return db.Stations.FirstOrDefaultAsync(s => s.OcppId == id, ct);
+    }
 
     /// <summary>The session currently in progress on a station (at most one by construction).</summary>
     private Task<ChargingSession?> OpenSession(int stationId, CancellationToken ct) =>

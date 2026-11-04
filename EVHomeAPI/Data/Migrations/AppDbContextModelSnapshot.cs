@@ -235,6 +235,9 @@ namespace EVHomeAPI.Data.Migrations
                     b.Property<DateTime?>("LimitUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<bool>("ManageLimit")
+                        .HasColumnType("boolean");
+
                     b.Property<int>("MaxCurrentA")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")

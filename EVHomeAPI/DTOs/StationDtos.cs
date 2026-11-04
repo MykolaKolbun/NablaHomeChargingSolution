@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 using EVHomeAPI.Models;
+using EVHomeAPI.Services;
 
 namespace EVHomeAPI.DTOs;
 
@@ -14,11 +15,12 @@ public record StationDto(
     DateTime? LastStatusAt,
     int       MaxCurrentA,
     decimal?  CurrentLimitA,
-    string?   LimitStatus)
+    string?   LimitStatus,
+    bool      ManageLimit)
 {
     public static StationDto From(Station s, StationRole role) => new(
         s.Id, s.OcppId, s.Name, role.ToString(), s.ClaimedAt, s.IsOnline, s.ConnectorStatus, s.LastStatusAt,
-        s.MaxCurrentA, s.CurrentLimitA, s.LimitStatus);
+        s.MaxCurrentA, s.CurrentLimitA, s.LimitStatus, s.ManageLimit);
 }
 
 /// <summary>limitA null = at the installation maximum (MaxCurrentA), never unlimited. Range 6…MaxCurrentA, step 0.1.</summary>
@@ -31,11 +33,15 @@ public record ClaimStationRequest(
 // ── Admin ──────────────────────────────────────────────────────────────────────
 
 public record CreateStationRequest(
-    [Required, StringLength(64, MinimumLength = 1), RegularExpression("^[A-Za-z0-9_.-]+$")] string OcppId,
+    [Required, StringLength(64, MinimumLength = 1), RegularExpression(OcppIds.Pattern)] string OcppId,
     [Required, StringLength(100, MinimumLength = 1)] string Name,
-    [Range(6, 80)] int MaxCurrentA = 32);
+    [Range(6, 80)] int MaxCurrentA = 32,
+    bool ManageLimit = true);
 
 public record SetMaxCurrentRequest([Range(6, 80)] int MaxCurrentA);
+
+/// <summary>false = EVHomeAPI never sends charging profiles to this charger.</summary>
+public record SetLimitManagementRequest(bool ManageLimit);
 
 /// <summary>ClaimCode is returned only once; the database keeps just its hash.</summary>
 public record CreateStationResponse(int Id, string OcppId, string Name, string ClaimCode);

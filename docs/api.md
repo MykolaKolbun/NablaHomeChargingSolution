@@ -146,9 +146,14 @@ Event names and payloads are identical to the commercial Nabla app (`totalCost` 
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/api/admin/stations` | `{ocppId, name, maxCurrentA?: 32}` | `200 {id, ocppId, name, claimCode}` · `409` exists |
+| POST | `/api/admin/stations` | `{ocppId, name, maxCurrentA?: 32, manageLimit?: true}` | `200 {id, ocppId, name, claimCode}` · `409` exists (case-insensitive) · `400` id not `[A-Za-z0-9_.#-]` |
 | PUT | `/api/admin/stations/{ocppId}/max-current` | `{maxCurrentA}` (6–80) | `200 {ocppId, maxCurrentA, currentLimitA, limitStatus, pushed}` — lowers a higher user limit, pushes the effective limit if online |
+| PUT | `/api/admin/stations/{ocppId}/limit-management` | `{manageLimit}` | `200 {ocppId, manageLimit, maxCurrentA, limitStatus, pushed}` — `false`: EVHomeAPI never sends a charging profile to this charger (claim, boot, user change → `409`), `limitStatus: "Unmanaged"`; does **not** clear a profile already on the charger. `true`: pushes the effective limit now |
 | POST | `/api/admin/stations/{ocppId}/claim-code` | — | `200 {…, claimCode}` new code, old one invalid |
+
+OCPP ids are stored **lower-case** (EVOCPP lower-cases the WebSocket id and keys its connections by it);
+admin routes and claim accept any case. `#` is allowed for per-connector ids (Wallbox Supernova: `U005#1`)
+and must be written `%23` in a URL.
 
 The claim code appears **only** in these responses; the database stores a BCrypt hash.
 Step-by-step onboarding (charger OCPP settings → create → claim → verify): [adding-a-charger.md](adding-a-charger.md).

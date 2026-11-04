@@ -56,7 +56,8 @@ public class StationsController(
     {
         const string invalid = "Invalid station ID or claim code.";
         var userId  = User.GetUserId();
-        var station = await db.Stations.FirstOrDefaultAsync(s => s.OcppId == req.OcppId.Trim());
+        var ocppId  = OcppIds.Normalize(req.OcppId);
+        var station = await db.Stations.FirstOrDefaultAsync(s => s.OcppId == ocppId);
 
         if (station?.ClaimCodeHash is null ||
             !BCrypt.Net.BCrypt.Verify(ClaimCode.Normalize(req.ClaimCode), station.ClaimCodeHash))
@@ -201,6 +202,7 @@ public class StationsController(
         if (await FindAccess(id) is not { } access) return NotFound();
         if (access.Role != StationRole.Owner) return Forbid();
         var station = access.Station;
+        if (!station.ManageLimit) return Conflict("Current limit is not managed for this charger.");
 
         var limit = req.LimitA is null ? (decimal?)null : Math.Round(req.LimitA.Value, 1);
         if (limit is not null && (limit < 6 || limit > station.MaxCurrentA))

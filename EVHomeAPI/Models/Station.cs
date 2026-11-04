@@ -36,6 +36,11 @@ public class Station
     /// <summary>Pending | Applied | Rejected | NotSupported | Timeout | Error — last charger answer.</summary>
     public string?   LimitStatus     { get; set; }
     public DateTime? LimitUpdatedAt  { get; set; }
+    /// <summary>
+    /// false = EVHomeAPI never sends charging profiles to this charger (claim, boot, user change).
+    /// For chargers it must not throttle, e.g. a DC charger under test. Default true (D11).
+    /// </summary>
+    public bool      ManageLimit     { get; set; } = true;
 
     public ICollection<StationAccess>   Accesses { get; set; } = [];
     public ICollection<ChargingSession> Sessions { get; set; } = [];
