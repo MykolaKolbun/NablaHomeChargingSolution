@@ -86,7 +86,8 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   (it ignores `currentTime` from BootNotification.conf), so all its OCPP timestamps are wrong — the
   backend should not trust charger timestamps blindly (session times, StopTransaction). It connects as
   ONE charge point with connectorId 1/2 (not per-connector ids). `ChargeProfileMaxStackLevel = 0`,
-  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power. Whether it reports DC-meter faults
-  over OCPP is still unknown (the fault was repaired before it was connected).
+  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
+  It DOES report hardware faults: `errorCode = OtherError`, Wallbox code in `vendorErrorCode`
+  (`DCF:PMO:003:HWR:OF2`, `DCF:CCS:001:ISO:TMO`), text in `info` — show these to the operator.
 - **Reference here:** `docs/hardware/supernova-669850.md` (+ full GetConfiguration JSON).
 - **Found:** 2026-11-04, Supernova connected to Nabla Home EVOCPP during repair.

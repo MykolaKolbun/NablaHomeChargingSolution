@@ -25,7 +25,7 @@
   `currentTime` у відповіді на Boot не застосовує. Тому й дата помилки лічильників у локальному UI — «02/13/2025»:
   дата в UI — це неправильний годинник, не давність помилки. `TimeZone = Europe/Kyiv`.
 - Помилку DC-лічильників (DCF:PMD:001/002:COM:000) користувач **усунув заміною лічильника до підключення**
-  до EVOCPP, тому `Available` / `NoError` — справжній стан. Чи передає станція такі помилки в OCPP — **не перевірено**.
+  до EVOCPP, тому `Available` / `NoError` — справжній стан.
 - Heartbeat приходить (перший о 17:38:40 після Boot о 17:33:45); з'єднання додатково тримається
   WebSocket-пінгами (`WebSocketPingInterval = 50`).
 - `TriggerMessage(StatusNotification)` → `Accepted`, статуси роз'ємів 0/1/2 — `Available` / `NoError`.
@@ -52,3 +52,23 @@
 | `VehicleIDEnable` / `AutoChargeEnabled` | false / false | Autocharge (ідентифікація авто) вимкнено; ключів ISO 15118 немає |
 | `PoSEnable` | Deactivated | платіжний термінал |
 | `DailyRebootTime` | — | |
+
+## Тест заряду 2026-11-04 (Tesla, CCS, роз'єм 1)
+
+Роз'єм 1 `Preparing` 15:45:57Z → `RemoteStart` (EVHomeAPI, idTag `U1`) **Accepted** 15:46:29Z → через ~40 с старт зірвався:
+
+| UTC | Роз'єм | `errorCode` / `vendorErrorCode` | `info` |
+|---|---|---|---|
+| 15:47:07 | 1 (Preparing), 2 (Available) | OtherError / `DCF:PMO:003:HWR:OF2` | Power module 3 HW component output fuse error |
+| 15:47:23 | 1 → Finishing | OtherError | |
+| 15:47:24 | 1 | OtherError / `DCF:CCS:001:ISO:TMO` | CCS hose 1 timeout in isolation test error |
+| 15:47:25 | 1 | OtherError / `DCF:CCS:001:SAF:000` | CCS hose 1 isolation test error |
+
+`StartTransaction` не було; `charger.remote.start.response` опубліковано о 15:47:30Z.
+
+**Висновки**
+- Апаратні помилки станція **передає в OCPP**: `errorCode = OtherError`, код Wallbox у `vendorErrorCode`
+  (той самий формат, що в локальному UI: `DCF:<блок>:<номер>:<тип>:<код>`), людський текст в `info`.
+- Годинник після підключення синхронізувався: з 15:43:47Z timestamps правильні.
+- Ланцюжок: вихідний запобіжник силового модуля 3 → DC-вихід не набирає напругу для тесту ізоляції
+  CCS → таймаут тесту ізоляції → старт скасовано.
