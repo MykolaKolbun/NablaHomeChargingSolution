@@ -23,12 +23,12 @@
 
 - **Годинник стоїть на 2025-02-13** (усі `timestamp` у StatusNotification ~`2025-02-13T09:19Z` при реальній даті 2026-11-04).
   `currentTime` у відповіді на Boot не застосовує. Тому й дата помилки лічильників у локальному UI — «02/13/2025»:
-  помилка актуальна, неправильний годинник. `TimeZone = Europe/Kyiv`.
-- **Помилка DC-лічильників (DCF:PMD:001/002:COM:000, Degraded) в OCPP не видно**: роз'єми звітують
-  `Available` / `NoError`, `vendorErrorCode` порожній.
+  дата в UI — це неправильний годинник, не давність помилки. `TimeZone = Europe/Kyiv`.
+- Помилку DC-лічильників (DCF:PMD:001/002:COM:000) користувач **усунув заміною лічильника до підключення**
+  до EVOCPP, тому `Available` / `NoError` — справжній стан. Чи передає станція такі помилки в OCPP — **не перевірено**.
 - Heartbeat приходить (перший о 17:38:40 після Boot о 17:33:45); з'єднання додатково тримається
   WebSocket-пінгами (`WebSocketPingInterval = 50`).
-- `TriggerMessage(StatusNotification)` → `Accepted`, статуси роз'ємів 0/1/2 — `Available` / `NoError`: помилки лічильників немає і на прямий запит.
+- `TriggerMessage(StatusNotification)` → `Accepted`, статуси роз'ємів 0/1/2 — `Available` / `NoError`.
 - `MeterValueSampleInterval = 60` прийняла (EVOCPP ставить після Boot).
 
 ## Ключові параметри (повний список — [supernova-669850-config.json](supernova-669850-config.json), 99 ключів)

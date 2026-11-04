@@ -79,15 +79,14 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   `charger.booted`; EVHomeAPI `SessionResumeService` (pause + RemoteStart under the same session).
 - **Found:** 2026-10-09, grid outage during a Wallbox test session.
 
-## CB-008 · Supernova faults are invisible over OCPP; its clock is wrong
-- **Target:** EVChargingApi / OCPP_RD station health monitoring; Supernova onboarding (PR-011)
+## CB-008 · Supernova onboarding facts: wrong clock, single charge point, profile limits
+- **Target:** EVChargingApi / OCPP_RD Supernova onboarding (PR-011), timestamp handling
 - **Status:** idea
-- **Why:** Wallbox Supernova SN 669850 (fw 4.6.16) showed "DC meter 1/2 not able to communicate"
-  (DCF:PMD:00x:COM:000, Degraded) in its local UI, yet over OCPP both connectors reported
-  `Available` / `NoError` with empty `vendorErrorCode` — an operator would not see the fault.
-  Its clock was stuck at 2025-02-13 (it ignores `currentTime` from BootNotification.conf), so all
-  OCPP timestamps are wrong. Even TriggerMessage(StatusNotification) returns NoError.
-  It connects as ONE charge point with connectorId 1/2. `ChargeProfileMaxStackLevel = 0`,
-  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
+- **Why:** Wallbox Supernova SN 669850 (fw 4.6.16, OCPP 1.6 only): its clock was stuck at 2025-02-13
+  (it ignores `currentTime` from BootNotification.conf), so all its OCPP timestamps are wrong — the
+  backend should not trust charger timestamps blindly (session times, StopTransaction). It connects as
+  ONE charge point with connectorId 1/2 (not per-connector ids). `ChargeProfileMaxStackLevel = 0`,
+  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power. Whether it reports DC-meter faults
+  over OCPP is still unknown (the fault was repaired before it was connected).
 - **Reference here:** `docs/hardware/supernova-669850.md` (+ full GetConfiguration JSON).
 - **Found:** 2026-11-04, Supernova connected to Nabla Home EVOCPP during repair.
