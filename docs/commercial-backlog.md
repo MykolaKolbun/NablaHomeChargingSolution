@@ -79,17 +79,40 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   `charger.booted`; EVHomeAPI `SessionResumeService` (pause + RemoteStart under the same session).
 - **Found:** 2026-10-09, grid outage during a Wallbox test session.
 
-## CB-008 · Supernova onboarding facts: wrong clock, single charge point, profile limits
-- **Target:** EVChargingApi / OCPP_RD Supernova onboarding (PR-011), timestamp handling
+## CB-008 · Wallbox Supernova: real OCPP behaviour (observed on a live unit)
+- **Target:** OCPP_RD (connection / StatusNotification / RemoteStart handling, Supernova adapter),
+  EVChargingApi (station model, sessions, operator UI), Supernova onboarding (PR-011)
 - **Status:** idea
-- **Why:** Wallbox Supernova SN 669850 (fw 4.6.16, OCPP 1.6 only): its clock was stuck at 2025-02-13
-  (it ignores `currentTime` from BootNotification.conf), so all its OCPP timestamps are wrong — the
-  backend should not trust charger timestamps blindly (session times, StopTransaction). On fw 4.6.16 it
-  connects as ONE charge point with connectorId 1/2; the same unit on fw 4.2.69 showed up in Skidata as two
-  charge points `WBX669850` + `WBX669850#2` (1 connector each) — most likely Skidata's own per-parking-space
-  split (asymmetric ids; unverifiable, no logs). Treat Supernova as one charge point with connectorId 1/2. `ChargeProfileMaxStackLevel = 0`,
-  `ChargingScheduleMaxPeriods = 1`, limit units Current and Power.
-  It DOES report hardware faults: `errorCode = OtherError`, Wallbox code in `vendorErrorCode`
-  (`DCF:PMO:003:HWR:OF2`, `DCF:CCS:001:ISO:TMO`), text in `info` — show these to the operator.
-- **Reference here:** `docs/hardware/supernova-669850.md` (+ full GetConfiguration JSON).
-- **Found:** 2026-11-04, Supernova connected to Nabla Home EVOCPP during repair.
+- **Source:** Wallbox Supernova 60 kW DC SN 669850, model `DCF1-211-84600000`, fw 4.6.16, connected to
+  Nabla Home EVOCPP on 2026-11-04 during a repair. Everything below is what the charger itself sent —
+  not vendor docs, not another backend's interpretation.
+- **What to apply:**
+  1. **One charge point, two connectors.** It opens ONE WebSocket as `WBX669850` (= `ChargePointId`),
+     `NumberOfConnectors = 2`, connectors arrive as `connectorId` 1 and 2 (0 = station). Model it as one
+     station with two EVSEs — not two stations `…#1`/`…#2`. The `#1`/`#2` ids seen earlier under Skidata
+     were almost certainly Skidata's per-parking-space split (asymmetric: `WBX669850` + `WBX669850#2`).
+     Every status, RemoteStart and session must carry the connectorId.
+  2. **Hardware faults come over OCPP.** StatusNotification with `errorCode = OtherError`, Wallbox code
+     in `vendorErrorCode` (`DCF:<block>:<nnn>:<type>:<code>`, same as its local UI) and English text in
+     `info`. Store and show `vendorErrorCode` + `info` to the operator; alert on them. Codes seen:
+     `PMO:nnn:HWR:OF2` power-module output fuse, `PMO:nnn:HWR:OD2` output diode, `PMO:nnn:OVT:BAT`
+     battery over-voltage, `PMO:nnn:COM` module missing, `CCS:00n:ISO:TMO` / `CCS:00n:SAF:000` CCS
+     isolation test timeout / failure, `PMD:00n:COM:000` DC meter comms, `DLS:002:TRI` cabinet door open,
+     `PSY:001:HWR` "Blackout" (mains lost). Power modules are numbered by discovery order, not slot.
+  3. **Failed DC start = Accepted RemoteStart without StartTransaction.** RemoteStart → `Accepted`, then
+     ~16–40 s later a module error, `ISO:TMO` → `SAF:000`, connector → `Finishing`, no StartTransaction.
+     Backend should end the pending session on that fault (not wait for its timeout) and tell the user
+     why (related: CB-006).
+  4. **Don't trust its clock.** After boot its timestamps were `2025-02-13…` (RTC lost); later in the same
+     connection they became correct. Use server receive time when a timestamp is far off.
+  5. **Smart charging limits.** `ChargeProfileMaxStackLevel = 0`, `ChargingScheduleMaxPeriods = 1`,
+     `MaxChargingProfilesInstalled = 6`, units Current and Power — for DC send the limit in **W**, one
+     period, stackLevel 0. Vendor keys `ChargingWLimitConn0/1/2` (W, writable, 60000).
+  6. **Useful config facts.** `AuthorizeRemoteTxRequests = false` (RemoteStart needs no Authorize);
+     `AutoChargeEnabled` (start on plug-in, default false); `ConnectionUrl` and `ChargePointId` writable via
+     ChangeConfiguration (remote migration between backends); `MeterValuesSampledData` includes SoC,
+     Power.Active.Import, Voltage, Current; `HeartbeatInterval = 300` + WebSocket ping 50 s;
+     `ConnectionTimeOut = 120`; `StopTransactionOnEVSideDisconnect = true`; OCPP 1.6 only.
+- **Reference here:** `docs/hardware/supernova-669850.md` (all event timelines) and
+  `docs/hardware/supernova-669850-config.json` (full GetConfiguration, 99 keys).
+- **Found:** 2026-11-04 / 2026-11-05.
