@@ -159,3 +159,39 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   attempts in a row. Matters as soon as `AutoStart:Iso15118Enabled` is switched on (PR-003).
 - **Reference implementation here:** EVOCPP — register the waiter first, then publish.
 - **Found:** 2026-11-05.
+
+## CB-011 · Multi-connector stations: rework from "one OCPP id per connector" to "one id, N connectors"
+- **Target:** OCPP_RD (`ChargingStationConnections` / `ConnectorState`, `Communicator.cs` handlers,
+  RabbitMQ events), EVChargingApi (station/connector model, sessions, wallet guard, app), PR-011
+- **Status:** idea — design input from a real charger
+- **Why:** the commercial design assumed each connector of a multi-connector charger connects with its own OCPP id
+  (`U005#1`, `U005#2`). That came from Skidata, which splits a station into parking spaces itself. A real Wallbox
+  Supernova (fw 4.6.16) connects as **one** charge point `WBX669850` with `NumberOfConnectors = 2`, and its two
+  connectors arrive as `connectorId` 1 and 2. Today OCPP_RD keeps **one state per OCPP id** and ignores `connectorId`
+  in MeterValues (`HandleMeterValueNotification`, `Communicator.cs` ~491–523). With two cars on 2026-11-05 the
+  two connectors' meters interleaved under one id every few seconds:
+  `c2 28 268 884 Wh`, `c1 19 107 884 Wh`, `c2 28 269 208 Wh`.
+  The result would be ±9 MWh "deltas", a mixed-up MeterStartWh, wrong power and the other car's SoC.
+- **What to change**
+  1. State keyed by **(ocppId, connectorId)**: socket/boot per station, but session, meter, SoC, status, CarId,
+     pending start/stop per connector. connectorId 0 = station-level status and errors.
+  2. Route StartTransaction / MeterValues / StatusNotification by `connectorId`, and StopTransaction by
+     `transactionId` (it has no connectorId).
+  3. All `charger.*` events carry `connectorId`; `command.remote.start` targets a connector (already has
+     `ConnectorId`).
+  4. Authorize (1.6) has no connectorId. Bind the VID to the connector of the next `Preparing`, then confirm on
+     StartTransaction (see CB-008 #7, CB-010).
+  5. Every connector has **its own meter** (different registers): MeterStartWh and energy per connector.
+  6. Shared power: `Power.Offered` per connector moves as the other connector starts (50 → 20 + 30 kW).
+     Show the offered power per connector; don't treat a drop as a fault.
+  7. Onboarding: read `NumberOfConnectors` (GetConfiguration) and create the connectors from it. Keep support
+     for per-id stations only if a real charger needs it.
+  8. Station-level faults (`connectorId 0`, e.g. power-module codes) affect both connectors.
+- **PR-011 checklist answers (from this unit):**
+  - OCPP 1.6 only (no 2.0.1).
+  - Model `DCF1-211-84600000`.
+  - ISO 15118 vehicle id works as Autocharge `VID:<EVCCID>` with a Tesla. No PnC contract is needed for VID.
+  - SoC/Voltage/Current/Power come in MeterValues and are parsed by `MeterValueParser` as is.
+  - Phantom first-sample power spikes (117.5 / 161.7 kW on a 60 kW unit) → clamp to the station rating.
+- **Reference here:** `docs/hardware/supernova-669850.md` (two-car table, per-connector meters).
+- **Found:** 2026-11-05/06.
