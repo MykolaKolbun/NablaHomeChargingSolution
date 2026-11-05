@@ -64,11 +64,14 @@ export const stationsApi = {
   list:        ()                                   => api.get<Station[]>('/stations'),
   get:         (id: number)                         => api.get<Station>(`/stations/${id}`),
   claim:       (ocppId: string, claimCode: string)  => api.post<Station>('/stations/claim', { ocppId, claimCode }),
-  start:       (id: number)                         => api.post<Session>(`/stations/${id}/start`, { connectorId: 1 }),
-  stop:        (id: number)                         => api.post<Session>(`/stations/${id}/stop`),
+  start:       (id: number, connectorId = 1)        => api.post<Session>(`/stations/${id}/start`, { connectorId }),
+  stop:        (id: number, connectorId?: number)   =>
+    api.post<Session>(`/stations/${id}/stop`, undefined, { params: connectorId ? { connectorId } : undefined }),
   setLimit:    (id: number, limitA: number | null)  => api.put<Station>(`/stations/${id}/limit`, { limitA }),
   /** 204 (empty body) when idle. */
   openSession: (id: number)                         => api.get<Session | ''>(`/stations/${id}/session`),
+  /** Every open session of the station (one per connector at most). */
+  openSessions: (id: number)                        => api.get<Session[]>(`/stations/${id}/sessions/open`),
   history:     (id: number, limit = 50)             => api.get<Session[]>(`/stations/${id}/sessions`, { params: { limit } }),
 };
 

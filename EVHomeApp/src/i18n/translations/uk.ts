@@ -42,6 +42,7 @@ const uk: Translation = {
     unknown:       'Невідомо',
   },
   station: {
+    connector:          'Роз\'єм {{n}}',
     start:              'Почати заряджання',
     stop:               'Зупинити заряджання',
     starting:           'Запуск…',

@@ -1,19 +1,23 @@
 /**
  * useStationLive — live state of one station for the station screen.
  *
- *   REST    : station, open session, meter-history (on mount, on reconnect,
+ *   REST    : station, open sessions, meter-history (on mount, on reconnect,
  *             on app foreground, and every 30 s while the hub is disconnected)
  *   SignalR : status / session / meter events applied incrementally
  *
  * REST is the source of truth; events only make the UI instant. Any time we may
  * have missed events (reconnect, background) we simply reload.
+ *
+ * A station can have several connectors (Wallbox Supernova: 1 and 2), each with its own
+ * session. The screen shows one connector at a time (`connectorId`, chosen with
+ * `selectConnector`); `session`, `power` and `connectorStatus` belong to that connector.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { apiErrorMessage, sessionsApi, stationsApi } from '../api/client';
 import { stationHub } from '../api/stationHub';
-import type { PowerPoint, Session, Station } from '../types';
+import type { Connector, PowerPoint, Session, Station } from '../types';
 import { secondsBetween } from '../utils/format';
 
 const MAX_POINTS   = 240;
@@ -22,9 +26,20 @@ const POLL_MS      = 30_000;
 export type Failure  = { kind: 'start' | 'stop'; reason: 'Rejected' | 'Timeout' | 'Request'; message?: string };
 export type Finished = { sessionId: number; energyKwh: number; durationSec: number };
 
+/** Connector of a session (1 when an older server omits it). */
+export const connectorOf = (s: Session): number => s.connectorId ?? 1;
+
+/** Connectors of a station, connector 1 always present (older server: none listed). */
+export function connectorsOf(station: Station | null): Connector[] {
+  const list = station?.connectors ?? [];
+  if (list.some(c => c.connectorId === 1)) return list;
+  return [{ connectorId: 1, status: station?.connectorStatus ?? null, lastStatusAt: station?.lastStatusAt ?? null }, ...list];
+}
+
 export function useStationLive(stationId: number) {
   const [station,  setStation]  = useState<Station | null>(null);
-  const [session,  setSession]  = useState<Session | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [connectorId, setConnectorId] = useState(1);
   const [power,    setPower]    = useState<PowerPoint[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -33,37 +48,65 @@ export function useStationLive(stationId: number) {
   const [failure,  setFailure]  = useState<Failure | null>(null);
   const [finished, setFinished] = useState<Finished | null>(null);
 
-  const sessionRef = useRef<Session | null>(null);
-  sessionRef.current = session;
+  const sessionsRef  = useRef<Session[]>([]);
+  sessionsRef.current = sessions;
+  const connectorRef = useRef(1);
+  connectorRef.current = connectorId;
+
+  const session = sessions.find(s => connectorOf(s) === connectorId) ?? null;
 
   // ── REST load ───────────────────────────────────────────────────────────────
 
-  const loadSession = useCallback(async () => {
-    const { data } = await stationsApi.openSession(stationId);
-    const open = data && typeof data === 'object' ? data : null;
-    setSession(open);
-    if (open && open.status !== 'Pending') {
-      const history = await sessionsApi.meterHistory(open.id);
+  const loadPower = useCallback(async (s: Session | null | undefined) => {
+    if (s && s.status !== 'Pending') {
+      const history = await sessionsApi.meterHistory(s.id);
       setPower(history.data.map(p => ({ t: p.elapsedSec, kw: p.currentPowerKw ?? 0, soc: p.soc })).slice(-MAX_POINTS));
     } else {
       setPower([]);
     }
-  }, [stationId]);
+  }, []);
+
+  const loadSessions = useCallback(async () => {
+    let open: Session[];
+    try {
+      open = (await stationsApi.openSessions(stationId)).data;
+    } catch (e) {
+      // Older server without /sessions/open: the single open session.
+      if ((e as { response?: { status?: number } })?.response?.status !== 404) throw e;
+      const { data } = await stationsApi.openSession(stationId);
+      open = data && typeof data === 'object' ? [data] : [];
+    }
+    setSessions(open);
+    await loadPower(open.find(s => connectorOf(s) === connectorRef.current));
+  }, [stationId, loadPower]);
 
   const reload = useCallback(async () => {
     try {
       const { data } = await stationsApi.get(stationId);
       setStation(data);
-      await loadSession();
+      await loadSessions();
       setLoadError(null);
     } catch (e) {
       setLoadError(apiErrorMessage(e, 'network'));
     } finally {
       setLoading(false);
     }
-  }, [stationId, loadSession]);
+  }, [stationId, loadSessions]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  /** Show another connector of the station (its session and chart). */
+  const selectConnector = useCallback((id: number) => {
+    if (id === connectorRef.current) return;
+    setConnectorId(id);
+    connectorRef.current = id;
+    setFinished(null);
+    setPower([]);
+    loadPower(sessionsRef.current.find(s => connectorOf(s) === id)).catch(() => {});
+  }, [loadPower]);
+
+  const updateSession = (id: number, patch: (s: Session) => Session) =>
+    setSessions(list => list.map(s => (s.id === id ? patch(s) : s)));
 
   // ── SignalR ─────────────────────────────────────────────────────────────────
 
@@ -71,50 +114,63 @@ export function useStationLive(stationId: number) {
     onConnectionChange: setHubConnected,
     onReconnected: reload,
 
-    onStatus: m => setStation(s => s && ({
-      ...s,
-      isOnline:        m.isConnected,
-      connectorStatus: m.ocppConnectorId === 1 ? m.status : s.connectorStatus,
-      lastStatusAt:    new Date().toISOString(),
-    })),
+    onStatus: m => setStation(s => {
+      if (!s) return s;
+      const now = new Date().toISOString();
+      const connectors = m.ocppConnectorId > 0
+        ? [...connectorsOf(s).filter(c => c.connectorId !== m.ocppConnectorId),
+           { connectorId: m.ocppConnectorId, status: m.status, lastStatusAt: now }]
+            .sort((a, b) => a.connectorId - b.connectorId)
+        : s.connectors;
+      return {
+        ...s,
+        isOnline:        m.isConnected,
+        connectorStatus: m.ocppConnectorId === 1 ? m.status : s.connectorStatus,
+        lastStatusAt:    now,
+        connectors,
+      };
+    }),
 
-    // Also fires when a Paused session resumes (same session id, new transaction).
-    onSessionStarted: () => { loadSession().catch(() => {}); },
+    // New session (e.g. started at the charger on any connector) or a Paused one resuming.
+    onSessionStarted: () => { loadSessions().catch(() => {}); },
 
-    onSessionPaused: m => setSession(s => (s && s.id === m.sessionId ? { ...s, status: 'Paused', currentPowerKw: 0 } : s)),
+    onSessionPaused: m => updateSession(m.sessionId, s => ({ ...s, status: 'Paused', currentPowerKw: 0 })),
 
     onSessionStartFailed: m => {
-      if (sessionRef.current && sessionRef.current.id !== m.sessionId) return;
-      setSession(null);
-      setFailure({ kind: 'start', reason: m.reason });
+      const failed = sessionsRef.current.find(s => s.id === m.sessionId);
+      setSessions(list => list.filter(s => s.id !== m.sessionId));
+      if (!failed || connectorOf(failed) === connectorRef.current)
+        setFailure({ kind: 'start', reason: m.reason });
     },
 
     onMeter: m => {
-      const cur = sessionRef.current;
-      if (!cur || cur.id !== m.sessionId) { loadSession().catch(() => {}); return; }
-      setSession({ ...cur, energyKwh: m.energyKwh, currentPowerKw: m.currentPowerKw, soc: m.soc ?? cur.soc });
+      const cur = sessionsRef.current.find(s => s.id === m.sessionId);
+      if (!cur) { loadSessions().catch(() => {}); return; }
+      updateSession(m.sessionId, s => ({ ...s, energyKwh: m.energyKwh, currentPowerKw: m.currentPowerKw, soc: m.soc ?? s.soc }));
+      if (connectorOf(cur) !== connectorRef.current) return;   // chart shows the selected connector only
       const t = secondsBetween(cur.startedAt ?? cur.createdAt);
       setPower(p => [...p, { t, kw: m.currentPowerKw ?? 0, soc: m.soc }].slice(-MAX_POINTS));
     },
 
     onSessionFinalized: m => {
-      const cur = sessionRef.current;
+      const cur = sessionsRef.current.find(s => s.id === m.sessionId);
+      setSessions(list => list.filter(s => s.id !== m.sessionId));
+      if (cur && connectorOf(cur) !== connectorRef.current) return;   // another connector finished
       setFinished(prev => prev?.sessionId === m.sessionId ? prev : {   // stop() may have set it already
         sessionId:   m.sessionId,
         energyKwh:   m.energyKwh,
         durationSec: cur ? secondsBetween(cur.startedAt ?? cur.createdAt) : 0,
       });
-      setSession(null);
       setPower([]);
     },
 
     onLimitUpdated: m => setStation(s => s && ({ ...s, currentLimitA: m.limitA, limitStatus: m.status })),
 
     onSessionStopFailed: m => {
-      setSession(s => (s && s.id === m.sessionId ? { ...s, status: 'Active' } : s));
+      updateSession(m.sessionId, s => ({ ...s, status: 'Active' }));
       setFailure({ kind: 'stop', reason: m.reason });
     },
-  }), [stationId, reload, loadSession]);
+  }), [stationId, reload, loadSessions]);
 
   // Fallback poll while the hub is down.
   useEffect(() => {
@@ -129,14 +185,14 @@ export function useStationLive(stationId: number) {
     return () => sub.remove();
   }, [reload]);
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // ── Actions (on the selected connector) ─────────────────────────────────────
 
   const start = useCallback(async () => {
     setBusy(true);
     setFinished(null);
     try {
-      const { data } = await stationsApi.start(stationId);
-      setSession(data);
+      const { data } = await stationsApi.start(stationId, connectorRef.current);
+      setSessions(list => [...list.filter(s => connectorOf(s) !== connectorOf(data)), data]);
       setPower([]);
     } catch (e) {
       setFailure({ kind: 'start', reason: 'Request', message: apiErrorMessage(e, '') });
@@ -149,14 +205,14 @@ export function useStationLive(stationId: number) {
   const stop = useCallback(async () => {
     setBusy(true);
     try {
-      const { data } = await stationsApi.stop(stationId);
+      const { data } = await stationsApi.stop(stationId, connectorRef.current);
       if (data.status === 'Completed') {
         // Paused session ended on the server (nothing was charging) — no charger round-trip.
         setFinished({ sessionId: data.id, energyKwh: data.energyKwh, durationSec: secondsBetween(data.startedAt ?? data.createdAt) });
-        setSession(null);
+        setSessions(list => list.filter(s => s.id !== data.id));
         setPower([]);
       } else {
-        setSession(data);
+        updateSession(data.id, () => data);
       }
     } catch (e) {
       setFailure({ kind: 'stop', reason: 'Request', message: apiErrorMessage(e, '') });
@@ -178,8 +234,12 @@ export function useStationLive(stationId: number) {
     }
   }, [stationId, reload]);
 
+  const connectors      = connectorsOf(station);
+  const connectorStatus = connectors.find(c => c.connectorId === connectorId)?.status ?? null;
+
   return {
-    station, session, power, loading, loadError, hubConnected, busy,
+    station, session, sessions, power, loading, loadError, hubConnected, busy,
+    connectors, connectorId, connectorStatus, selectConnector,
     failure, clearFailure: () => setFailure(null),
     finished, clearFinished: () => setFinished(null),
     start, stop, reload, setLimit,

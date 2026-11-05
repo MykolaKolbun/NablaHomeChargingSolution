@@ -17,7 +17,8 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import ConfirmSheet from '../../components/ui/ConfirmSheet';
 import PowerChart from '../../components/domain/PowerChart';
-import StatusBadge from '../../components/domain/StatusBadge';
+import StatusBadge, { statusColor } from '../../components/domain/StatusBadge';
+import { connectorOf } from '../../hooks/useStationLive';
 import LimitCard from '../../components/domain/LimitCard';
 import { useDevMode } from '../../context/DevModeContext';
 import { formatDurationShort, formatTimer, kw, kwh, secondsBetween } from '../../utils/format';
@@ -83,6 +84,7 @@ export default function StationScreen({ route, navigation }: Props) {
     );
   }
 
+  const multi   = live.connectors.length > 1;
   const elapsed = secondsBetween(session?.startedAt ?? session?.createdAt);
   const showSoc = live.power.some(p => p.soc != null) || session?.soc != null;
   // Session still open on the server but the charger dropped off (e.g. power cut on the grid side):
@@ -105,14 +107,42 @@ export default function StationScreen({ route, navigation }: Props) {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
-        {/* ── Station status ── */}
+        {/* ── Station status (of the selected connector) ── */}
         <Card style={styles.statusCard}>
           <View style={styles.statusRow}>
-            <StatusBadge station={station} />
+            <StatusBadge station={{ isOnline: station.isOnline, connectorStatus: live.connectorStatus }} />
             {!live.hubConnected && <Ionicons name="cloud-offline-outline" size={16} color={colors.textMuted} />}
           </View>
-          <Text style={styles.ocppId}>{station.ocppId}</Text>
+          <Text style={styles.ocppId}>
+            {station.ocppId}{multi ? ` · ${t('station.connector', { n: live.connectorId })}` : ''}
+          </Text>
         </Card>
+
+        {/* ── Connector picker (multi-connector chargers, e.g. Wallbox Supernova) ── */}
+        {multi && (
+          <View style={styles.connectorRow}>
+            {live.connectors.map(c => {
+              const selected = c.connectorId === live.connectorId;
+              const busyHere = live.sessions.some(s => connectorOf(s) === c.connectorId);
+              return (
+                <TouchableOpacity
+                  key={c.connectorId}
+                  style={[styles.connectorTab, selected && styles.connectorTabSelected]}
+                  onPress={() => live.selectConnector(c.connectorId)}
+                  activeOpacity={0.8}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                >
+                  <View style={[styles.connectorDot, { backgroundColor: statusColor({ isOnline: station.isOnline, connectorStatus: c.status }, colors) }]} />
+                  <Text style={[styles.connectorText, selected && styles.connectorTextSelected]}>
+                    {t('station.connector', { n: c.connectorId })}
+                  </Text>
+                  {busyHere && <Ionicons name="flash" size={13} color={selected ? colors.primary : colors.textMuted} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* ── Async outcomes ── */}
         {live.failure && <FailureBanner failure={live.failure} onClose={live.clearFailure} styles={styles} colors={colors} />}
@@ -246,6 +276,13 @@ function makeStyles(c: AppColors) {
     statusCard: { width: '100%', marginBottom: 16 },
     statusRow:  { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     ocppId:     { fontSize: 12, color: c.textMuted, marginTop: 10 },
+
+    connectorRow:          { flexDirection: 'row', gap: 10, width: '100%', marginBottom: 16 },
+    connectorTab:          { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: c.border, backgroundColor: c.bgCard },
+    connectorTabSelected:  { borderColor: c.primary },
+    connectorDot:          { width: 8, height: 8, borderRadius: 4 },
+    connectorText:         { fontSize: 14, fontWeight: '600', color: c.textSecondary },
+    connectorTextSelected: { color: c.textPrimary },
 
     idle:       { width: '100%', alignItems: 'center', marginTop: 32 },
     mainBtn:    { marginTop: 24 },

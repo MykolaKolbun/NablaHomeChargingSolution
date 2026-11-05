@@ -36,6 +36,9 @@ export default function HistoryScreen({ route }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Label the connector only when the station has used more than one.
+  const multi = useMemo(() => new Set((sessions ?? []).map(s => s.connectorId ?? 1)).size > 1, [sessions]);
+
   const dateFmt = useMemo(() => new Intl.DateTimeFormat(language === 'uk' ? 'uk-UA' : 'en-GB',
     { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }), [language]);
 
@@ -68,6 +71,7 @@ export default function HistoryScreen({ route }: Props) {
               <View style={styles.info}>
                 <Text style={styles.date}>{dateFmt.format(new Date(item.startedAt ?? item.createdAt))}</Text>
                 <Text style={styles.muted}>
+                  {multi ? `${t('station.connector', { n: item.connectorId ?? 1 })} · ` : ''}
                   {item.initiatedBy === 'App' ? t('history.byApp') : t('history.byCharger')}
                   {open ? ` · ${t('history.inProgress')}` : cancelled ? ` · ${t('history.cancelled')}` : ` · ${formatDurationShort(duration)}`}
                   {item.stopReason === 'PowerLoss' ? ` · ${t('history.powerLoss')}` : ''}

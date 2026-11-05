@@ -40,6 +40,7 @@ const en = {
     unknown:       'Unknown',
   },
   station: {
+    connector:          'Connector {{n}}',
     start:              'Start charging',
     stop:               'Stop charging',
     starting:           'Starting…',

@@ -20,6 +20,18 @@ export interface Station {
   maxCurrentA:     number;
   currentLimitA:   number | null;   // null = at maxCurrentA (never unlimited)
   limitStatus:     LimitStatus | null;
+  /**
+   * Every connector the charger has reported (connector 1 always listed). A station is one OCPP id;
+   * a DC charger (Wallbox Supernova) has connectors 1 and 2, each with its own session.
+   * connectorStatus above = connector 1. Absent on an older server.
+   */
+  connectors?:     Connector[];
+}
+
+export interface Connector {
+  connectorId:  number;
+  status:       ConnectorStatus | string | null;
+  lastStatusAt: string | null;
 }
 
 export type LimitStatus = 'Pending' | 'Applied' | 'Rejected' | 'NotSupported' | 'Timeout' | 'Error';
@@ -39,6 +51,8 @@ export interface Session {
   currentPowerKw: number | null;
   soc:            number | null;
   transactionId:  number | null;
+  /** Connector the session runs on (1 on an older server that omits it). */
+  connectorId?:   number;
 }
 
 export interface MeterPoint { elapsedSec: number; currentPowerKw: number | null; soc: number | null }

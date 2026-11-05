@@ -12,6 +12,21 @@ import type { Station } from '../../types';
 
 const KNOWN = ['Available', 'Preparing', 'Charging', 'SuspendedEVSE', 'SuspendedEV', 'Finishing', 'Reserved', 'Unavailable', 'Faulted'];
 
+/**
+ * One status for a whole station (station list). Multi-connector chargers: the most "active"
+ * connector wins — Charging, then a car plugged in, then the rest; single connector: its status.
+ */
+export function summaryStatus(station: Pick<Station, 'connectorStatus' | 'connectors'>): string | null {
+  const all = station.connectors?.map(c => c.status) ?? [];
+  if (all.length < 2) return station.connectorStatus;
+  const rank = (s: string | null) =>
+    s === 'Charging' ? 0
+      : s === 'SuspendedEV' || s === 'SuspendedEVSE' || s === 'Preparing' || s === 'Finishing' ? 1
+      : s === 'Faulted' ? 2
+      : s === 'Available' ? 3 : 4;
+  return [...all].sort((a, b) => rank(a) - rank(b))[0] ?? station.connectorStatus;
+}
+
 export function statusColor(station: Pick<Station, 'isOnline' | 'connectorStatus'>, c: AppColors): string {
   if (!station.isOnline) return c.offline;
   switch (station.connectorStatus) {

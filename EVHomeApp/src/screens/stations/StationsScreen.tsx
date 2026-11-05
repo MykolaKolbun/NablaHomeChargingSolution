@@ -13,7 +13,7 @@ import { stationsApi } from '../../api/client';
 import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
-import StatusBadge from '../../components/domain/StatusBadge';
+import StatusBadge, { summaryStatus } from '../../components/domain/StatusBadge';
 import type { AppColors } from '../../theme';
 import type { Station, StationsStackParamList } from '../../types';
 
@@ -85,7 +85,7 @@ export default function StationsScreen({ navigation }: Props) {
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
             </View>
-            <View style={styles.badgeRow}><StatusBadge station={item} /></View>
+            <View style={styles.badgeRow}><StatusBadge station={{ isOnline: item.isOnline, connectorStatus: summaryStatus(item) }} /></View>
           </Card>
         </TouchableOpacity>
       )}
