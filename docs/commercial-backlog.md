@@ -147,3 +147,15 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   Unknown until tested: units, whether a change applies to a running transaction, StopTransaction `reason`.
 - **Reference here:** `docs/hardware/supernova-669850.md` → «План тестів» T1/T2.
 - **Found:** 2026-11-05, design discussion during Supernova repair.
+
+## CB-010 · Authorize race: a fast backend answer is dropped and the vehicle is rejected
+- **Target:** `OCPP_RD/OCPPServer/OCPP1.6 Models/Communicator.cs` (`HandleAuthorize`, lines ~337–339),
+  `OCPP2.1 Models/Ocpp21Communicator.cs` (`HandleAuthorize`)
+- **Status:** idea
+- **Why:** `PublishAuthorizeRequestedAsync` is fired **before** `RegisterPendingAuthorize`. When the backend answers
+  within the same millisecond, `CompletePendingAuthorize` finds no waiter, the answer is lost, and 10 s later the
+  vehicle is rejected ("backend timeout"). Seen on a real Supernova (2026-11-05): `command.authorize.response:
+  Accepted` logged, then timeout, charger shows `DCF:USM:001:COM:TMO` "User Authentication Timeout"; three
+  attempts in a row. Matters as soon as `AutoStart:Iso15118Enabled` is switched on (PR-003).
+- **Reference implementation here:** EVOCPP — register the waiter first, then publish.
+- **Found:** 2026-11-05.

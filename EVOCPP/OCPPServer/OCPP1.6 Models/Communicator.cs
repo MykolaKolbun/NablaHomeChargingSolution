@@ -377,10 +377,13 @@ namespace OCPPServer.OCPP1._6_Models
                 var state = ChargingStationConnections.Get(stationId);
                 if (state != null) state.CarId = carId;
 
-                _ = RabbitMqPublisher.PublishAuthorizeRequestedAsync(stationId, carId);
-
+                // Register the waiter BEFORE publishing: the backend can answer within the same
+                // millisecond, and an answer that arrives before registration is dropped
+                // (seen on Supernova 2026-11-05: Accepted logged, then "backend timeout").
                 var tcs        = ChargingStationConnections.RegisterPendingAuthorize(stationId);
                 var authStatus = "Rejected"; // fail closed — backend silence = reject
+
+                _ = RabbitMqPublisher.PublishAuthorizeRequestedAsync(stationId, carId);
 
                 using var cts = new CancellationTokenSource(_authorizeTimeout);
                 try

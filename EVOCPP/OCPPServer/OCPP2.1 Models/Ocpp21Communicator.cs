@@ -208,10 +208,12 @@ public sealed class Ocpp21Communicator
             var state = ChargingStationConnections.Get(stationId);
             if (state != null) state.CarId = carId;
 
-            _ = RabbitMqPublisher.PublishAuthorizeRequestedAsync(stationId, carId, connectorId);
-
+            // Register the waiter BEFORE publishing (see OCPP 1.6 HandleAuthorize): a fast backend
+            // answer arriving before registration would be dropped and the vehicle rejected.
             var tcs        = ChargingStationConnections.RegisterPendingAuthorize(stationId);
             var authStatus = "Rejected"; // fail closed
+
+            _ = RabbitMqPublisher.PublishAuthorizeRequestedAsync(stationId, carId, connectorId);
 
             using var cts = new CancellationTokenSource(_authorizeTimeout);
             try
