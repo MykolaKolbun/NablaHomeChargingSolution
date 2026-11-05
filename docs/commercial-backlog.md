@@ -95,7 +95,9 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   2. **Hardware faults come over OCPP.** StatusNotification with `errorCode = OtherError`, Wallbox code
      in `vendorErrorCode` (`DCF:<block>:<nnn>:<type>:<code>`, same as its local UI) and English text in
      `info`. Store and show `vendorErrorCode` + `info` to the operator; alert on them. Codes seen:
-     `PMO:nnn:HWR:OF2` power-module output fuse, `PMO:nnn:HWR:OD2` output diode, `PMO:nnn:OVT:BAT`
+     `PMO:nnn:HWR:OF2` power-module output fuse, `PMO:nnn:HWR:OD2` output diode — **if every module reports
+     OF2/OD2, the cause is the common DC output fuse F6** (confirmed by Wallbox, case 01213780: the controller
+     sees module voltage but 0 V on the DC bus) — operator hint: "check F6", not "replace modules", `PMO:nnn:OVT:BAT`
      battery over-voltage, `PMO:nnn:COM` module missing, `CCS:00n:ISO:TMO` / `CCS:00n:SAF:000` CCS
      isolation test timeout / failure, `PMD:00n:COM:000` DC meter comms, `DLS:002:TRI` cabinet door open,
      `PSY:001:HWR` "Blackout" (mains lost). Power modules are numbered by discovery order, not slot.
@@ -113,6 +115,17 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
      ChangeConfiguration (remote migration between backends); `MeterValuesSampledData` includes SoC,
      Power.Active.Import, Voltage, Current; `HeartbeatInterval = 300` + WebSocket ping 50 s;
      `ConnectionTimeOut = 120`; `StopTransactionOnEVSideDisconnect = true`; OCPP 1.6 only.
+  7. **ISO 15118 / Autocharge by EVID — field data for PR-003** (2026-11-05, with `AutoChargeEnabled = true`):
+     `Authorize {"idTag":"VID:98ed5cdc5016"}` (VID: + 12 hex = EVCCID) 6 s after `Preparing`; backend answered in
+     94 ms (10 s window is ample); `StartTransaction` 35 s later with the same idTag and the real `connectorId`
+     (Authorize has none — Gap A). **Gap B is real:** with `AuthorizationCacheEnabled = true` and
+     `LocalPreAuthorize = true` a once-accepted VID starts later sessions with **no Authorize at all** (seen twice);
+     after `ClearCache` it asks again. Gap C closed for Wallbox (`VID:` prefix used). Onboarding should either
+     disable the cache / LocalPreAuthorize or handle `StartTransaction` with an unauthorized VID (wallet check).
+     RemoteStopTransaction works for Autocharge sessions; StopTransaction carries an empty idTag.
+  8. **Energy register unreliable on this unit** (both DC meters): power/current/SoC are live, but
+     `Energy.Active.Import.Register` barely moves in MeterValues and jumps at StopTransaction — 2–3× under-count.
+     A billing backend should cross-check energy against ∫power and flag sessions where they diverge.
 - **Reference here:** `docs/hardware/supernova-669850.md` (all event timelines) and
   `docs/hardware/supernova-669850-config.json` (full GetConfiguration, 99 keys).
 - **Found:** 2026-11-04 / 2026-11-05.
