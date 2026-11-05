@@ -268,6 +268,36 @@ public class ChargingStationConnectionsTests
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
+    // ── Pending authorize (ISO 15118 VID) ──────────────────────────────────────
+    // HandleAuthorize must register the waiter BEFORE publishing the request:
+    // an answer that arrives before registration is dropped (Supernova, 2026-11-05).
+
+    [Fact]
+    public async Task Authorize_answer_after_register_completes_the_waiter()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+
+        var tcs = ChargingStationConnections.RegisterPendingAuthorize(stationId);
+        ChargingStationConnections.CompletePendingAuthorize(stationId, "Accepted");
+
+        Assert.Equal("Accepted", await tcs.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public void Authorize_answer_before_register_is_dropped()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+
+        ChargingStationConnections.CompletePendingAuthorize(stationId, "Accepted"); // too early
+        var tcs = ChargingStationConnections.RegisterPendingAuthorize(stationId);
+
+        Assert.False(tcs.Task.IsCompleted);   // why the order in HandleAuthorize matters
+        ChargingStationConnections.Remove(stationId);
+    }
+
     private static string UniqueId() => Guid.NewGuid().ToString("N")[..8];
 
     /// <summary>
