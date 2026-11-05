@@ -194,4 +194,9 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   - SoC/Voltage/Current/Power come in MeterValues and are parsed by `MeterValueParser` as is.
   - Phantom first-sample power spikes (117.5 / 161.7 kW on a 60 kW unit) → clamp to the station rating.
 - **Reference here:** `docs/hardware/supernova-669850.md` (two-car table, per-connector meters).
+  **Reference implementation here (2026-11-06):** EVOCPP `9b65bde` — `ConnectorSession` per connector,
+  `PlugConnectors` table, connectorId in events, `MultiConnectorFlowTests` replaying the Supernova log;
+  EVHomeAPI `e020c78` — `StationConnector`, open session per (station, connector), resume per connector;
+  EVHomeApp `4355d70` — connector picker. Open: house limit on multi-connector chargers needs a
+  station-wide `ChargePointMaxProfile` (`TxDefaultProfile` applies per connector).
 - **Found:** 2026-11-05/06.
