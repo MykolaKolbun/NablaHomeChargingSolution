@@ -126,6 +126,45 @@ namespace OCPPServer.Migrations
 
                     b.ToTable("Plugs");
                 });
+
+            modelBuilder.Entity("OCPPServer.DataBase.DBModels.PlugConnector", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("ConnectorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastStatusUpdate")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("MeterStartWh")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("OcppId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int?>("TransactionId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OcppId", "ConnectorId")
+                        .IsUnique();
+
+                    b.HasIndex("OcppId", "TransactionId");
+
+                    b.ToTable("PlugConnectors");
+                });
 #pragma warning restore 612, 618
         }
     }

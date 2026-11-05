@@ -60,7 +60,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     {
                         // Charger said it will try to start — wait for the actual StartTransaction.req
                         // before notifying EVChargingApi. Timeout covers cable-plug-in delay.
-                        var tcs = ChargingStationConnections.RegisterPendingStartTransaction(cmd.OcppId);
+                        var tcs = ChargingStationConnections.RegisterPendingStartTransaction(cmd.OcppId, cmd.ConnectorId);
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         timeoutCts.CancelAfter(_txConfirmTimeout);
 
@@ -79,7 +79,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         }
                         catch (OperationCanceledException)
                         {
-                            ChargingStationConnections.CancelPendingStartTransaction(cmd.OcppId);
+                            ChargingStationConnections.CancelPendingStartTransaction(cmd.OcppId, cmd.ConnectorId);
                             _tracer.Warning("RemoteStart",
                                 $"{cmd.OcppId} — StartTransaction not received within {_txConfirmTimeout.TotalSeconds:F0}s",
                                 chargePointId: cmd.OcppId);
@@ -118,7 +118,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
 
                     if (status == "Accepted")
                     {
-                        var tcs = ChargingStationConnections.RegisterPendingStopTransaction(cmd.OcppId);
+                        var tcs = ChargingStationConnections.RegisterPendingStopTransaction(cmd.OcppId, cmd.TransactionId.Value);
                         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                         timeoutCts.CancelAfter(_txConfirmTimeout);
 
@@ -137,7 +137,7 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                         }
                         catch (OperationCanceledException)
                         {
-                            ChargingStationConnections.CancelPendingStopTransaction(cmd.OcppId);
+                            ChargingStationConnections.CancelPendingStopTransaction(cmd.OcppId, cmd.TransactionId.Value);
                             _tracer.Warning("RemoteStop",
                                 $"{cmd.OcppId} — StopTransaction not received within {_txConfirmTimeout.TotalSeconds:F0}s",
                                 chargePointId: cmd.OcppId);
@@ -272,10 +272,17 @@ public sealed class OcppCommandHandler : IOcppCommandHandler
                     var status = await SetProfileWithFallbackAsync(socket, ocppId,
                         abs => ChargingProfiles.TxDefault(limitA, abs));
 
+                    // TxProfile goes to the connector that runs the transaction (1 if unknown).
                     string? txStatus = null;
                     if (txId.HasValue && status == "Accepted")
+                    {
+                        var txConnector = ChargingStationConnections.Get(ocppId)?.ByTransaction(txId.Value)?.ConnectorId
+                                          ?? (await _db.PlugConnectors.AsNoTracking()
+                                                .FirstOrDefaultAsync(c => c.OcppId == ocppId && c.TransactionId == txId.Value, ct))?.ConnectorId
+                                          ?? 1;
                         txStatus = await SetProfileWithFallbackAsync(socket, ocppId,
-                            abs => ChargingProfiles.Tx(connectorId: 1, txId.Value, limitA, abs));
+                            abs => ChargingProfiles.Tx(txConnector, txId.Value, limitA, abs));
+                    }
 
                     _tracer.Info("ChargingLimit", $"{ocppId}: limit {limitA} A → default={status} tx={txStatus ?? "-"}");
                     await RabbitMqPublisher.PublishChargingLimitResponseAsync(ocppId, limitA, status, txStatus);

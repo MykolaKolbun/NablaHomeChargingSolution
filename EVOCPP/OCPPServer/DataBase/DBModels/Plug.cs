@@ -95,11 +95,9 @@ namespace OCPPServer.DataBase.DBModels
         public string OcppVersion { get; set; } = "ocpp1.6";
 
         /// <summary>
-        /// Meter reading (Wh) at the start of the current or most-recent session.
-        /// Written by HandleStartTransaction / HandleTxStarted so the value survives
-        /// an OCPP server restart.  Cleared on StopTransaction / HandleTxEnded.
-        /// On restart the MeterValues handler reads this column back into
-        /// ConnectorState.MeterStartWh so PublishMeterUpdated carries a valid baseline.
+        /// Legacy: per-station MeterStartWh from before multi-connector support. No longer written —
+        /// sessions are persisted per connector in <see cref="PlugConnector"/> (the AddPlugConnectors
+        /// migration copies an open value to connector 1). Kept so old databases need no column drop.
         /// </summary>
         public decimal? MeterStartWh { get; set; }
     }

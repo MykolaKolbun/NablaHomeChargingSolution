@@ -94,11 +94,11 @@ Emitted when a charger connects, disconnects, or reports a status change.
 |---|---|---|
 | `ocppId` | `string` | Station serial / OCPP identity |
 | `status` | `string` | **Exact status string as reported by the charger — never translated by OCPPServer.** OCPP 1.6 values: `Available`, `Preparing`, `Charging`, `SuspendedEVSE`, `SuspendedEV`, `Finishing`, `Reserved`, `Unavailable`, `Faulted`. OCPP 2.x values: `Available`, `Occupied`, `Reserved`, `Unavailable`, `Faulted`. Interpretation of protocol differences (e.g. `Occupied` vs `Preparing`/`Charging`) is left to the consumer. |
-| `connectorId` | `int` | `0` = station-level, `1+` = individual connector |
+| `connectorId` | `int` | `1+` = individual connector (OCPP 2.x: the EVSE id); `0` only on the disconnect event (`Offline`). A station can have several connectors under one `ocppId` (Wallbox Supernova: 1 and 2) — keep status per connector. Station-level `StatusNotification(connectorId 0)` is not forwarded. |
 | `isConnected` | `bool` | `true` = WebSocket is open, `false` = station has disconnected |
 | `carId` | `string?` | EVCC ID (vehicle MAC address) if the vehicle identified itself via ISO 15118 / DIN 70121. Present only on status `Preparing` (1.6) / `Occupied` (2.x) and only for DC fast chargers. `null` for all other statuses and for AC chargers. |
 
-> **`carId` lifecycle:** set when the charger sends `Authorize.req` with a vehicle identity token (or from the first `TransactionEvent(Started)` that carries one); cleared when the connector returns to `Available`.
+> **`carId` lifecycle:** per connector. Set when the charger sends `Authorize.req` with a vehicle identity token and the connector is known (see §3.2), or from `StartTransaction` / `TransactionEvent(Started)` carrying one; cleared when that connector returns to `Available`.
 
 > **OCPP vocabulary note:** `status` is forwarded verbatim — OCPPServer does not translate between OCPP versions. In a mixed fleet, consumers receive `"Preparing"` from 1.6 chargers and `"Occupied"` from 2.x chargers for the same physical state. Map these on the consumer side to your own domain status model.
 
@@ -118,7 +118,7 @@ Emitted when a DC fast charger sends an `Authorize.req` carrying a vehicle ident
 |---|---|---|
 | `ocppId` | `string` | Station identity |
 | `carId` | `string` | EVCC ID (hex MAC address, no colons) — uniquely identifies the vehicle |
-| `connectorId` | `int` | *(optional)* EVSE/connector number (1-based). Present only for OCPP 2.x chargers that include `evseId` in their `Authorize.req`. **Key is absent entirely** for OCPP 1.6 (which has no EVSE field in Authorize) and for 2.x chargers that omit `evseId`. |
+| `connectorId` | `int` | *(optional)* connector the vehicle is on (1-based). OCPP 2.x: `evseId` from the request. OCPP 1.6 has no connector in `Authorize.req`: present when exactly one connector is `Preparing` without a transaction (a real Supernova sends `Preparing` ~6 s before `Authorize`); otherwise the **key is absent** and the connector is known only from the following `charger.transaction.started`. |
 
 **Required response:** publish `command.authorize.response` within 10 s (see §4.3).
 
@@ -132,15 +132,17 @@ Emitted when a charging session begins (`StartTransaction` on OCPP 1.6; `Transac
 {
   "ocppId":        "CP-001",
   "transactionId": 42,
-  "meterStartWh":  12500.00
+  "meterStartWh":  12500.00,
+  "connectorId":   2
 }
 ```
 
 | Field | Type | Notes |
 |---|---|---|
 | `ocppId` | `string` | Station identity |
-| `transactionId` | `int` | Server-assigned transaction ID (OCPP 2.x string IDs are mapped to a local int) |
-| `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if not provided |
+| `transactionId` | `int` | Server-assigned transaction ID (OCPP 2.x string IDs are mapped to a local int). After a server restart IDs continue above the highest still-open transaction |
+| `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if not provided. Each connector has its **own** meter |
+| `connectorId` | `int` | Connector the transaction runs on (OCPP 2.x: EVSE id) |
 
 ### 3.4 `charger.transaction.stopped`
 
@@ -152,7 +154,8 @@ Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `Transactio
   "transactionId": 42,
   "meterStopWh":   18750.00,
   "meterStartWh":  12500.00,
-  "reason":        "PowerLoss"
+  "reason":        "PowerLoss",
+  "connectorId":   2
 }
 ```
 
@@ -163,6 +166,7 @@ Emitted when a charging session ends (`StopTransaction` on OCPP 1.6; `Transactio
 | `meterStopWh` | `decimal` | Energy meter reading at session end (Wh) |
 | `meterStartWh` | `decimal?` | Energy meter reading at session start (Wh); `null` if unavailable |
 | `reason` | `string?` | OCPP 1.6 `StopTransaction.reason` as sent (`PowerLoss`, `EVDisconnected`, `Remote`, `Local`, `Reboot`, …); `null` when omitted (= `Local`) or on OCPP 2.x |
+| `connectorId` | `int?` | Connector of the transaction. `StopTransaction` carries none — resolved from the running transaction, or from the DB after a server restart; `null` only if the transaction is unknown |
 
 A charger that lost power mid-session typically reports it after the reboot: `BootNotification` → `StatusNotification` → queued `StopTransaction` with `reason: "PowerLoss"` (Wallbox Copper SB, fw 6.7.38).
 
@@ -178,7 +182,9 @@ Emitted periodically during a session when the charger sends `MeterValues` notif
   "meterValueWh":    15320.50,
   "meterStartWh":    12500.00,
   "currentPowerKw":  7.4,
-  "soc":             82.5
+  "soc":             82.5,
+  "connectorId":     1,
+  "transactionId":   42
 }
 ```
 
@@ -189,6 +195,10 @@ Emitted periodically during a session when the charger sends `MeterValues` notif
 | `meterStartWh` | `decimal?` | Session start meter value; `null` if not yet known |
 | `currentPowerKw` | `double?` | Active power in kW; directly reported by charger (`Power.Active.Import`) or derived from consecutive energy readings; `null` if unavailable |
 | `soc` | `decimal?` | State of Charge (%, 0–100); only populated by DC fast chargers that communicate with the vehicle BMS; `null` for AC chargers |
+| `connectorId` | `int` | Whose meter this is. Two cars on one station send interleaved samples from different meters — never mix them (registers differ by megawatt-hours) |
+| `transactionId` | `int?` | Transaction running on that connector, if known |
+
+`MeterValues` for `connectorId 0` (station main meter) are not forwarded.
 
 ### 3.6 `charger.remote.start.response`
 
@@ -515,8 +525,12 @@ GET /api/admin/plugs
 | `currentPowerKw` | `double?` | Live | Instantaneous power; `null` if unavailable |
 | `stateOfCharge` | `decimal?` | Live | Battery SoC %; DC fast chargers only |
 | `meterType` | `string?` | Live | `"Internal"`, `"External MID"`, or `"Internal NON compliant"` (Wallbox); `null` if not connected |
+| `connectors` | `array` | DB + Live | One entry per connector: `{connectorId, status, lastStatusUpdate, transactionId, meterValueWh, meterStartWh, currentPowerKw, stateOfCharge, carId}` |
 
-> **Live fields** are sourced from the in-memory `ConnectorState` and are only present while the charger is connected. They reset to `null` on server restart.
+> `status` and the top-level meter fields describe **connector 1** (legacy single-connector view);
+> use `connectors` for multi-connector stations.
+
+> **Live fields** are sourced from the in-memory station state and are only present while the charger is connected. They reset to `null` on server restart (except `connectors[].status`, `transactionId` and `meterStartWh`, which are persisted in `PlugConnectors`).
 
 ### 5.2 Get Plug Detail
 

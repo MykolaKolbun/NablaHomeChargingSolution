@@ -156,79 +156,151 @@ public class ChargingStationConnectionsTests
     // ── OCPP 2.x transaction management ───────────────────────────────────────
 
     [Fact]
-    public void GetOcpp21LocalTxId_NoActiveTransaction_ReturnsNull()
-    {
-        var result = ChargingStationConnections.GetOcpp21LocalTxId(UniqueId());
-        Assert.Null(result);
-    }
-
-    [Fact]
     public void GetOcpp21TxId_NoActiveTransaction_ReturnsNull()
     {
-        var result = ChargingStationConnections.GetOcpp21TxId(UniqueId());
-        Assert.Null(result);
+        Assert.Null(ChargingStationConnections.GetOcpp21TxId(UniqueId(), 12345));
     }
 
     [Fact]
-    public void RegisterOcpp21Transaction_ReturnsPositiveId()
+    public void RegisterOcpp21Transaction_MapsLocalIdToOcppTxIdOnThatEvse()
     {
         var stationId = UniqueId();
         ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp2.1");
 
-        var id = ChargingStationConnections.RegisterOcpp21Transaction(stationId, "TX-001");
-        Assert.True(id > 0);
+        var localId = ChargingStationConnections.RegisterOcpp21Transaction(stationId, 2, "TX-ABC");
+
+        Assert.True(localId > 0);
+        Assert.Equal("TX-ABC", ChargingStationConnections.GetOcpp21TxId(stationId, localId));
+        Assert.Equal(2, ChargingStationConnections.Get(stationId)!.ByOcppTransaction("TX-ABC")!.ConnectorId);
+        Assert.Null(ChargingStationConnections.Get(stationId)!.Connector(1).LocalTxId);
 
         ChargingStationConnections.Remove(stationId);
-    }
-
-    [Fact]
-    public void RegisterOcpp21Transaction_ThenGet_ReturnsBothIds()
-    {
-        var stationId = UniqueId();
-        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp2.1");
-
-        var localId = ChargingStationConnections.RegisterOcpp21Transaction(stationId, "TX-ABC");
-
-        Assert.Equal(localId, ChargingStationConnections.GetOcpp21LocalTxId(stationId));
-        Assert.Equal("TX-ABC",  ChargingStationConnections.GetOcpp21TxId(stationId));
-
-        ChargingStationConnections.Remove(stationId);
-    }
-
-    [Fact]
-    public void ClearOcpp21Transaction_GetReturnsNull()
-    {
-        var stationId = UniqueId();
-        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp2.1");
-        ChargingStationConnections.RegisterOcpp21Transaction(stationId, "TX-XYZ");
-
-        ChargingStationConnections.ClearOcpp21Transaction(stationId);
-
-        Assert.Null(ChargingStationConnections.GetOcpp21LocalTxId(stationId));
-        Assert.Null(ChargingStationConnections.GetOcpp21TxId(stationId));
-
-        ChargingStationConnections.Remove(stationId);
-    }
-
-    [Fact]
-    public void ClearOcpp21Transaction_NonExistent_DoesNotThrow()
-    {
-        var ex = Record.Exception(() => ChargingStationConnections.ClearOcpp21Transaction("ghost"));
-        Assert.Null(ex);
     }
 
     [Fact]
     public void RegisterOcpp21Transaction_IdsAreUnique()
     {
-        // Each call must return a distinct local ID (Interlocked.Increment guarantees this)
         var ids = Enumerable.Range(0, 10).Select(i =>
         {
             var stationId = UniqueId();
             ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp2.1");
-            return ChargingStationConnections.RegisterOcpp21Transaction(stationId, $"TX-{i}");
+            return ChargingStationConnections.RegisterOcpp21Transaction(stationId, 1, $"TX-{i}");
         }).ToList();
 
         Assert.Equal(ids.Count, ids.Distinct().Count());
+    }
+
+    [Fact]
+    public void EnsureTransactionIdsAbove_NextIdIsHigher()
+    {
+        ChargingStationConnections.EnsureTransactionIdsAbove(1_000_000);
+        Assert.True(ChargingStationConnections.NextTransactionId() > 1_000_000);
+    }
+
+    // ── Multi-connector stations (one OCPP id, N connectors — Wallbox Supernova) ──
+
+    [Fact]
+    public void Connectors_have_independent_session_state()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+        var state = ChargingStationConnections.Get(stationId)!;
+
+        var c1 = state.Connector(1);
+        var c2 = state.Connector(2);
+        c1.LocalTxId = 21; c1.MeterStartWh = 19_107_456m; c1.StateOfCharge = 44m;
+        c2.LocalTxId = 22; c2.MeterStartWh = 28_256_000m; c2.StateOfCharge = 95m;
+
+        Assert.Same(c1, state.ByTransaction(21));
+        Assert.Same(c2, state.ByTransaction(22));
+        Assert.Equal(19_107_456m, state.Connector(1).MeterStartWh);
+        Assert.Equal(95m, state.Connector(2).StateOfCharge);
+
+        c2.EndTransaction(28_272_076m);
+        Assert.Null(state.ByTransaction(22));
+        Assert.Same(c1, state.ByTransaction(21));      // the other connector keeps its session
+
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public async Task PendingStart_is_per_connector()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+
+        var t1 = ChargingStationConnections.RegisterPendingStartTransaction(stationId, 1);
+        var t2 = ChargingStationConnections.RegisterPendingStartTransaction(stationId, 2);
+
+        ChargingStationConnections.CompletePendingStartTransaction(stationId, 2, 77);
+
+        Assert.Equal(77, await t2.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.False(t1.Task.IsCompleted);   // a start on connector 2 must not confirm connector 1
+
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public async Task PendingStart_on_connector_0_is_completed_by_any_connector()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+
+        var any = ChargingStationConnections.RegisterPendingStartTransaction(stationId, 0);
+        ChargingStationConnections.CompletePendingStartTransaction(stationId, 2, 5);
+
+        Assert.Equal(5, await any.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public async Task PendingStop_is_per_transaction()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+
+        var s21 = ChargingStationConnections.RegisterPendingStopTransaction(stationId, 21);
+        var s22 = ChargingStationConnections.RegisterPendingStopTransaction(stationId, 22);
+
+        ChargingStationConnections.CompletePendingStopTransaction(stationId, 22);
+
+        Assert.Equal(22, await s22.Task.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.False(s21.Task.IsCompleted);
+
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public void Authorized_car_binds_to_the_only_preparing_connector()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+        var state = ChargingStationConnections.Get(stationId)!;
+        state.Connector(1).Status = "Preparing";
+        state.Connector(2).Status = "Charging";
+        state.Connector(2).LocalTxId = 21;
+
+        var bound = ChargingStationConnections.BindAuthorizedCar(stationId, "001823975bef");
+
+        Assert.Equal(1, bound);
+        Assert.Equal("001823975bef", state.Connector(1).CarId);
+        Assert.Null(state.UnboundCarId);
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public void Authorized_car_stays_unbound_when_ambiguous()
+    {
+        var stationId = UniqueId();
+        ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp1.6");
+        var state = ChargingStationConnections.Get(stationId)!;
+        state.Connector(1).Status = "Preparing";
+        state.Connector(2).Status = "Preparing";
+
+        Assert.Null(ChargingStationConnections.BindAuthorizedCar(stationId, "98ed5cdc5016"));
+        Assert.Equal("98ed5cdc5016", state.UnboundCarId);
+        Assert.Null(state.Connector(1).CarId);
+        ChargingStationConnections.Remove(stationId);
     }
 
     // ── Thread safety ──────────────────────────────────────────────────────────
@@ -257,7 +329,7 @@ public class ChargingStationConnectionsTests
         {
             var stationId = $"tx-station-{i}-{UniqueId()}";
             ChargingStationConnections.Add(stationId, CreateFakeSocket(), "ocpp2.1");
-            ids.Add(ChargingStationConnections.RegisterOcpp21Transaction(stationId, $"TX-{i}"));
+            ids.Add(ChargingStationConnections.RegisterOcpp21Transaction(stationId, 1, $"TX-{i}"));
             ChargingStationConnections.Remove(stationId);
         })).ToArray();
 

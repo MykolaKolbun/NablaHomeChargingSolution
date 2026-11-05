@@ -84,9 +84,13 @@ public static class RabbitMqPublisher
     private static Task PublishAsync(string routingKey, object payload)
         => PublishRawAsync(routingKey, JsonSerializer.Serialize(payload));
 
+    /// <summary>Observer of every published event (routing key, JSON) — used by tests; null in production.</summary>
+    public static Action<string, string>? Published { get; set; }
+
     /// <summary>Publishes an already serialized JSON document.</summary>
     private static async Task PublishRawAsync(string routingKey, string json)
     {
+        Published?.Invoke(routingKey, json);
         if (_channel is null) return;   // RabbitMQ not configured — silently skip
         try
         {
@@ -119,9 +123,9 @@ public static class RabbitMqPublisher
     /// and reply via command.authorize.response { ocppId, status }.
     /// If no response arrives within 10 s the server rejects automatically.
     ///
-    /// <paramref name="connectorId"/> is included only when the OCPP version provides it
-    /// (OCPP 2.x <c>evseId</c>). OCPP 1.6 Authorize.req has no EVSE field — pass null
-    /// and the key will be omitted entirely from the published JSON.
+    /// <paramref name="connectorId"/> is included only when known: OCPP 2.x <c>evseId</c>, or for
+    /// OCPP 1.6 (no EVSE field in Authorize.req) when exactly one connector is Preparing.
+    /// Otherwise pass null and the key is omitted from the published JSON.
     /// </summary>
     public static Task PublishAuthorizeRequestedAsync(string ocppId, string carId, int? connectorId = null)
     {
@@ -142,10 +146,12 @@ public static class RabbitMqPublisher
     /// <summary>
     /// Charger confirmed StartTransaction. EVChargingApi stores the OCPP
     /// transactionId on the active session so RemoteStop can include it.
+    /// connectorId: the connector the transaction runs on (a station can have several).
     /// </summary>
-    public static Task PublishTransactionStartedAsync(string ocppId, int transactionId, decimal? meterStartWh)
+    public static Task PublishTransactionStartedAsync(string ocppId, int transactionId, decimal? meterStartWh,
+        int connectorId = 1)
         => PublishAsync("charger.transaction.started",
-            new { ocppId, transactionId, meterStartWh });
+            new { ocppId, transactionId, meterStartWh, connectorId });
 
     /// <summary>
     /// Charger confirmed StopTransaction. Includes transactionId so EVChargingApi
@@ -153,11 +159,14 @@ public static class RabbitMqPublisher
     /// meterStopWh and meterStartWh to calculate the real energy delta.
     /// reason: OCPP stop reason as sent by the charger (PowerLoss, EVDisconnected, Remote,
     /// Local, ...); null when the charger omitted it.
+    /// connectorId: connector of the transaction; null when unknown (transaction from before a
+    /// server restart that was not persisted).
     /// </summary>
     public static Task PublishTransactionStoppedAsync(
-        string ocppId, int transactionId, decimal meterStopWh, decimal? meterStartWh, string? reason = null)
+        string ocppId, int transactionId, decimal meterStopWh, decimal? meterStartWh, string? reason = null,
+        int? connectorId = null)
         => PublishAsync("charger.transaction.stopped",
-            new { ocppId, transactionId, meterStopWh, meterStartWh, reason });
+            new { ocppId, transactionId, meterStopWh, meterStartWh, reason, connectorId });
 
     /// <summary>
     /// Charger (re)booted: BootNotification accepted and post-boot configuration sent.
@@ -170,11 +179,13 @@ public static class RabbitMqPublisher
     /// <summary>
     /// Charger sent MeterValues. Carries live energy and instantaneous power
     /// so EVChargingApi can push real-time updates to the session screen.
+    /// connectorId / transactionId identify whose meter it is (each connector has its own meter).
     /// </summary>
     public static Task PublishMeterUpdatedAsync(
-        string ocppId, decimal meterValueWh, decimal? meterStartWh, double? currentPowerKw, decimal? soc = null)
+        string ocppId, decimal meterValueWh, decimal? meterStartWh, double? currentPowerKw, decimal? soc = null,
+        int connectorId = 1, int? transactionId = null)
         => PublishAsync("charger.meter.updated",
-            new { ocppId, meterValueWh, meterStartWh, currentPowerKw, soc });
+            new { ocppId, meterValueWh, meterStartWh, currentPowerKw, soc, connectorId, transactionId });
 
     /// <summary>
     /// Charger responded to RemoteStartTransaction. EVChargingApi uses this to

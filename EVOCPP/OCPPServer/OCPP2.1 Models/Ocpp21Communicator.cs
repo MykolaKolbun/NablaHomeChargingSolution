@@ -205,8 +205,13 @@ public sealed class Ocpp21Communicator
         // Regular RFID/app token → accept immediately.
         if (carId != null)
         {
-            var state = ChargingStationConnections.Get(stationId);
-            if (state != null) state.CarId = carId;
+            if (connectorId is > 0)
+            {
+                var conn = ChargingStationConnections.GetConnector(stationId, connectorId.Value);
+                if (conn != null) conn.CarId = carId;
+            }
+            else
+                connectorId = ChargingStationConnections.BindAuthorizedCar(stationId, carId);
 
             // Register the waiter BEFORE publishing (see OCPP 1.6 HandleAuthorize): a fast backend
             // answer arriving before registration would be dropped and the vehicle rejected.
@@ -348,29 +353,43 @@ public sealed class Ocpp21Communicator
             $"{stationId} evseId={evseId} connectorId={connectorId} status={statusStr}",
             chargePointId: stationId);
 
-        var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
-        if (plug != null)
-        {
-            var mappedStatus = MapConnectorStatus(statusStr);
-            if (mappedStatus.HasValue)
-                plug.Status = mappedStatus.Value;
-            else
-                _tracer.Warning("StatusNotification",
-                    $"{stationId}: unknown OCPP 2.x connectorStatus '{statusStr}' — DB status not changed",
-                    chargePointId: stationId);
+        // Our connector key is the EVSE (one session per EVSE); the 2.x connectorId is the plug inside it.
+        var key = evseId > 0 ? evseId : connectorId;
 
-            plug.LastStatusUpdate = DateTime.UtcNow;
-            await db.SaveChangesAsync();
+        await ConnectorStore.SetStatusAsync(db, stationId, key, statusStr);
+
+        // Plug.Status is the legacy single-connector view (admin REST): it mirrors EVSE 1.
+        if (key == 1)
+        {
+            var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
+            if (plug != null)
+            {
+                var mappedStatus = MapConnectorStatus(statusStr);
+                if (mappedStatus.HasValue)
+                    plug.Status = mappedStatus.Value;
+                else
+                    _tracer.Warning("StatusNotification",
+                        $"{stationId}: unknown OCPP 2.x connectorStatus '{statusStr}' — DB status not changed",
+                        chargePointId: stationId);
+
+                plug.LastStatusUpdate = DateTime.UtcNow;
+                await db.SaveChangesAsync();
+            }
         }
 
-        var state21 = ChargingStationConnections.Get(stationId);
+        var conn21 = ChargingStationConnections.GetConnector(stationId, key);
         string? carId21 = null;
-        if (statusStr == "Occupied")        // OCPP 2.x equivalent of "Preparing"
-            carId21 = state21?.CarId;
-        else if (statusStr == "Available" && state21 != null)
-            state21.CarId = null;           // vehicle disconnected — clear for next session
+        if (conn21 != null)
+        {
+            // 2.x "Occupied" ≈ 1.6 "Preparing" — stored as Preparing so the Authorize binding works alike
+            conn21.Status = statusStr == "Occupied" ? "Preparing" : statusStr;
+            if (statusStr == "Occupied")
+                carId21 = conn21.CarId;
+            else if (statusStr == "Available")
+                conn21.CarId = null;        // vehicle disconnected — clear for next session
+        }
 
-        _ = RabbitMqPublisher.PublishStatusChangedAsync(stationId, statusStr, connectorId, isConnected: true, carId21);
+        _ = RabbitMqPublisher.PublishStatusChangedAsync(stationId, statusStr, key, isConnected: true, carId21);
 
         await SendCallResult(socket, messageId, new JObject());
     }
@@ -387,16 +406,17 @@ public sealed class Ocpp21Communicator
         var ocppTxId    = txInfo?["transactionId"]?.Value<string>() ?? string.Empty;
         var meterValues = payload["meterValue"] as JArray;
         var idToken     = payload["idToken"] as JObject;
+        var evseId      = payload["evse"]?["id"]?.Value<int?>();
 
-        OcppTrace.Msg("OCPP21", $"TransactionEvent {stationId}: eventType={eventType} ocppTxId={ocppTxId}");
+        OcppTrace.Msg("OCPP21", $"TransactionEvent {stationId}: eventType={eventType} ocppTxId={ocppTxId} evse={evseId?.ToString() ?? "-"}");
 
         switch (eventType)
         {
             case "Started":
-                await HandleTxStarted(socket, messageId, stationId, ocppTxId, meterValues, db, idToken);
+                await HandleTxStarted(socket, messageId, stationId, ocppTxId, evseId ?? 1, meterValues, db, idToken);
                 break;
             case "Updated":
-                await HandleTxUpdated(socket, messageId, stationId, meterValues, db);
+                await HandleTxUpdated(socket, messageId, stationId, ocppTxId, evseId, meterValues, db);
                 break;
             case "Ended":
                 await HandleTxEnded(socket, messageId, stationId, ocppTxId, meterValues, db);
@@ -409,59 +429,111 @@ public sealed class Ocpp21Communicator
 
     private async Task HandleTxStarted(
         WebSocket socket, string messageId, string stationId,
-        string ocppTxId, JArray? meterValues, ChargingDBContext db,
+        string ocppTxId, int evseId, JArray? meterValues, ChargingDBContext db,
         JObject? idToken = null)
     {
-        var localTxId = ChargingStationConnections.RegisterOcpp21Transaction(stationId, ocppTxId);
+        if (evseId <= 0) evseId = 1;
+        var localTxId = ChargingStationConnections.RegisterOcpp21Transaction(stationId, evseId, ocppTxId);
 
         var state = ChargingStationConnections.Get(stationId);
+        var conn  = state?.Connector(evseId);
         var meterStartWh = state?.Adapter.ParseMeterValues(meterValues).EnergyWh
                            ?? MeterValueParser.Parse(meterValues).EnergyWh;
 
-        // Fallback: charger may carry EVCC ID in TransactionEvent without a prior Authorize.req
-        if (state != null && state.CarId is null && idToken != null)
+        // EVCC ID: from this TransactionEvent (charger may skip Authorize), else an unbound Authorize one
+        if (conn != null)
         {
-            var carId = ExtractCarId(idToken);
+            var carId = idToken != null ? ExtractCarId(idToken) : null;
             if (carId != null)
             {
-                state.CarId = carId;
-                OcppTrace.Dbg("OCPP21", $"CarId from TransactionEvent(Started) for {stationId}: {carId}");
+                conn.CarId = carId;
+                if (state!.UnboundCarId == carId) state.UnboundCarId = null;
+                OcppTrace.Dbg("OCPP21", $"CarId from TransactionEvent(Started) for {stationId}#{evseId}: {carId}");
             }
+            else if (conn.CarId is null && state!.UnboundCarId is { } unbound)
+            {
+                conn.CarId         = unbound;
+                state.UnboundCarId = null;
+            }
+
+            conn.MeterStartWh     = meterStartWh;
+            conn.MeterValueWh     = meterStartWh;
+            conn.LastMeterValueAt = null;
+            conn.CurrentPowerKw   = null;
+            conn.StateOfCharge    = null;
         }
 
         _tracer.Info("StartTransaction",
-            $"{stationId}: localId={localTxId} ocppTxId={ocppTxId}",
+            $"{stationId}: evse={evseId} localId={localTxId} ocppTxId={ocppTxId}",
             chargePointId: stationId, sessionId: localTxId);
 
-        if (state != null && meterStartWh.HasValue)
-        {
-            state.MeterStartWh     = meterStartWh.Value;
-            state.MeterValueWh     = meterStartWh.Value;
-            state.LastMeterValueAt = null;
-        }
-
-        // Persist MeterStartWh to DB so it survives an OCPP server restart.
-        var plugStart21 = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
-        if (plugStart21 != null)
-        {
-            plugStart21.MeterStartWh = meterStartWh;
-            await db.SaveChangesAsync();
-        }
+        // Persist transaction + MeterStartWh per connector so they survive an OCPP server restart.
+        await ConnectorStore.StartTransactionAsync(db, stationId, evseId, localTxId, meterStartWh);
 
         await SendCallResult(socket, messageId, new JObject
         {
             ["idTokenInfo"] = new JObject { ["status"] = "Accepted" }
         });
 
-        ChargingStationConnections.CompletePendingStartTransaction(stationId, localTxId);
-        _ = RabbitMqPublisher.PublishTransactionStartedAsync(stationId, localTxId, meterStartWh);
+        ChargingStationConnections.CompletePendingStartTransaction(stationId, evseId, localTxId);
+        _ = RabbitMqPublisher.PublishTransactionStartedAsync(stationId, localTxId, meterStartWh, evseId);
     }
 
     private async Task HandleTxUpdated(
         WebSocket socket, string messageId, string stationId,
-        JArray? meterValues, ChargingDBContext db)
+        string ocppTxId, int? evseId, JArray? meterValues, ChargingDBContext db)
+    {
+        var conn = ChargingStationConnections.Get(stationId)?.ByOcppTransaction(ocppTxId)
+                   ?? (evseId is > 0 ? ChargingStationConnections.GetConnector(stationId, evseId.Value) : null);
+        await ProcessMeterAsync(socket, messageId, stationId, conn?.ConnectorId ?? evseId ?? 1, meterValues, db);
+    }
+
+    private async Task HandleTxEnded(
+        WebSocket socket, string messageId, string stationId,
+        string ocppTxId, JArray? meterValues, ChargingDBContext db)
+    {
+        var state = ChargingStationConnections.Get(stationId);
+        var conn  = state?.ByOcppTransaction(ocppTxId);
+
+        // Read before clearing — needed for the RabbitMQ event and pending stop signal
+        var localTxId = conn?.LocalTxId ?? 0;
+        var row = localTxId > 0
+            ? await ConnectorStore.FindByTransactionAsync(db, stationId, localTxId)
+            : null;
+        int? connectorId       = conn?.ConnectorId ?? row?.ConnectorId;
+        var  meterStartForStop = conn?.MeterStartWh ?? row?.MeterStartWh;
+
+        var meterStopWh = state?.Adapter.ParseMeterValues(meterValues).EnergyWh
+                          ?? MeterValueParser.Parse(meterValues).EnergyWh;
+
+        conn?.EndTransaction(meterStopWh);
+        if (row != null) await ConnectorStore.EndTransactionAsync(db, row);
+
+        await SendCallResult(socket, messageId, new JObject());
+
+        _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
+            stationId, localTxId, meterStopWh ?? 0, meterStartForStop, connectorId: connectorId);
+
+        ChargingStationConnections.CompletePendingStopTransaction(stationId, localTxId);
+    }
+
+    // ── MeterValues (standalone, some 2.x chargers send both MeterValues + TransactionEvent) ─────
+
+    private Task HandleMeterValues(
+        WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
+    {
+        var evseId = payload["evseId"]?.Value<int?>() ?? 1;
+        if (evseId == 0)   // main meter of the whole station — not a session
+            return SendCallResult(socket, messageId, new JObject());
+        return ProcessMeterAsync(socket, messageId, stationId, evseId, payload["meterValue"] as JArray, db);
+    }
+
+    /// <summary>Updates the live meter of one EVSE and publishes charger.meter.updated.</summary>
+    private async Task ProcessMeterAsync(
+        WebSocket socket, string messageId, string stationId, int evseId, JArray? meterValues, ChargingDBContext db)
     {
         var state    = ChargingStationConnections.Get(stationId);
+        var conn     = state?.Connector(evseId);
         var readings = state?.Adapter.ParseMeterValues(meterValues)
                        ?? MeterValueParser.Parse(meterValues);
 
@@ -471,137 +543,45 @@ public sealed class Ocpp21Communicator
             return;
         }
 
-        // Restart recovery: restore MeterStartWh from DB if lost from in-memory state.
-        if (state != null && !state.MeterStartWh.HasValue)
+        // Restart recovery: restore MeterStartWh / transaction from DB if lost from in-memory state.
+        if (conn != null && !conn.MeterStartWh.HasValue)
         {
-            var plugRecover = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
-            if (plugRecover?.MeterStartWh.HasValue == true)
+            var row = await db.PlugConnectors.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.OcppId == stationId && c.ConnectorId == evseId);
+            if (row?.MeterStartWh.HasValue == true)
             {
-                state.MeterStartWh = plugRecover.MeterStartWh;
+                conn.MeterStartWh = row.MeterStartWh;
+                conn.LocalTxId  ??= row.TransactionId;
                 OcppTrace.Dbg("OCPP21",
-                    $"MeterStart recovered from DB after restart: {plugRecover.MeterStartWh} Wh for {stationId}");
+                    $"MeterStart recovered from DB after restart: {row.MeterStartWh} Wh for {stationId}#{evseId}");
             }
         }
 
         var now = DateTime.UtcNow;
 
         double? currentPowerKw = readings.PowerKw;
-        if (currentPowerKw == null && state?.MeterValueWh.HasValue == true && state.LastMeterValueAt.HasValue)
+        if (currentPowerKw == null && conn?.MeterValueWh.HasValue == true && conn.LastMeterValueAt.HasValue)
         {
-            var deltaWh    = (double)(readings.EnergyWh.Value - state.MeterValueWh.Value);
-            var deltaHours = (now - state.LastMeterValueAt.Value).TotalHours;
+            var deltaWh    = (double)(readings.EnergyWh.Value - conn.MeterValueWh.Value);
+            var deltaHours = (now - conn.LastMeterValueAt.Value).TotalHours;
             if (deltaHours > 0 && deltaWh > 0)
                 currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
             else if (deltaWh == 0)
-                currentPowerKw = state.CurrentPowerKw;  // snapshot with no new energy — keep last known value
+                currentPowerKw = conn.CurrentPowerKw;  // snapshot with no new energy — keep last known value
         }
 
-        if (state != null)
+        if (conn != null)
         {
-            state.MeterValueWh     = readings.EnergyWh.Value;
-            state.LastMeterValueAt = now;
-            state.CurrentPowerKw   = currentPowerKw;
+            conn.MeterValueWh     = readings.EnergyWh.Value;
+            conn.LastMeterValueAt = now;
+            conn.CurrentPowerKw   = currentPowerKw;
             if (readings.SoC.HasValue)
-                state.StateOfCharge = readings.SoC;
+                conn.StateOfCharge = readings.SoC;
         }
 
         _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
-            stationId, readings.EnergyWh.Value, state?.MeterStartWh, currentPowerKw, readings.SoC);
-
-        await SendCallResult(socket, messageId, new JObject());
-    }
-
-    private async Task HandleTxEnded(
-        WebSocket socket, string messageId, string stationId,
-        string ocppTxId, JArray? meterValues, ChargingDBContext db)
-    {
-        var state = ChargingStationConnections.Get(stationId);
-
-        // Read before clearing — needed for the RabbitMQ event and pending stop signal
-        var localTxId         = state?.LocalTxId ?? 0;
-        var meterStartForStop = state?.MeterStartWh;
-
-        var meterStopWh = state?.Adapter.ParseMeterValues(meterValues).EnergyWh
-                          ?? MeterValueParser.Parse(meterValues).EnergyWh;
-
-        if (state != null)
-        {
-            state.MeterStartWh     = null;
-            state.MeterValueWh     = meterStopWh;
-            state.LastMeterValueAt = null;
-            state.CurrentPowerKw   = null;
-            state.StateOfCharge    = null;
-        }
-
-        ChargingStationConnections.ClearOcpp21Transaction(stationId);
-
-        // Clear persisted MeterStartWh — session is over.
-        var plugStop21 = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
-        if (plugStop21 != null)
-        {
-            plugStop21.MeterStartWh = null;
-            await db.SaveChangesAsync();
-        }
-
-        await SendCallResult(socket, messageId, new JObject());
-
-        _ = RabbitMqPublisher.PublishTransactionStoppedAsync(
-            stationId, localTxId, meterStopWh ?? 0, meterStartForStop);
-
-        ChargingStationConnections.CompletePendingStopTransaction(stationId, localTxId);
-    }
-
-    // ── MeterValues (standalone, some 2.x chargers send both MeterValues + TransactionEvent) ─────
-
-    private async Task HandleMeterValues(
-        WebSocket socket, string messageId, JObject payload, string stationId, ChargingDBContext db)
-    {
-        var state    = ChargingStationConnections.Get(stationId);
-        var readings = state?.Adapter.ParseMeterValues(payload["meterValue"] as JArray)
-                       ?? MeterValueParser.Parse(payload["meterValue"] as JArray);
-
-        if (!readings.EnergyWh.HasValue)
-        {
-            await SendCallResult(socket, messageId, new JObject());
-            return;
-        }
-
-        // Restart recovery: restore MeterStartWh from DB if lost from in-memory state.
-        if (state != null && !state.MeterStartWh.HasValue)
-        {
-            var plugRecover = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == stationId);
-            if (plugRecover?.MeterStartWh.HasValue == true)
-            {
-                state.MeterStartWh = plugRecover.MeterStartWh;
-                OcppTrace.Dbg("OCPP21",
-                    $"MeterStart recovered from DB after restart: {plugRecover.MeterStartWh} Wh for {stationId}");
-            }
-        }
-
-        var now = DateTime.UtcNow;
-
-        double? currentPowerKw = readings.PowerKw;
-        if (currentPowerKw == null && state?.MeterValueWh.HasValue == true && state.LastMeterValueAt.HasValue)
-        {
-            var deltaWh    = (double)(readings.EnergyWh.Value - state.MeterValueWh.Value);
-            var deltaHours = (now - state.LastMeterValueAt.Value).TotalHours;
-            if (deltaHours > 0 && deltaWh > 0)
-                currentPowerKw = Math.Round(deltaWh / 1000.0 / deltaHours, 2);
-            else if (deltaWh == 0)
-                currentPowerKw = state.CurrentPowerKw;  // snapshot with no new energy — keep last known value
-        }
-
-        if (state != null)
-        {
-            state.MeterValueWh     = readings.EnergyWh.Value;
-            state.LastMeterValueAt = now;
-            state.CurrentPowerKw   = currentPowerKw;
-            if (readings.SoC.HasValue)
-                state.StateOfCharge = readings.SoC;
-        }
-
-        _ = RabbitMqPublisher.PublishMeterUpdatedAsync(
-            stationId, readings.EnergyWh.Value, state?.MeterStartWh, currentPowerKw, readings.SoC);
+            stationId, readings.EnergyWh.Value, conn?.MeterStartWh, currentPowerKw, readings.SoC,
+            evseId, conn?.LocalTxId);
 
         await SendCallResult(socket, messageId, new JObject());
     }
@@ -634,11 +614,13 @@ public sealed class Ocpp21Communicator
     /// </summary>
     public async Task<JObject> SendStopCharging(WebSocket socket, string stationId, int? transactionId)
     {
-        var ocppTxId = ChargingStationConnections.GetOcpp21TxId(stationId);
+        var ocppTxId = transactionId is { } local
+            ? ChargingStationConnections.GetOcpp21TxId(stationId, local)
+            : null;
         if (ocppTxId is null)
         {
             _tracer.Warning("RemoteStop",
-                $"{stationId}: RequestStopTransaction — no active OCPP 2.x transaction found",
+                $"{stationId}: RequestStopTransaction — no active OCPP 2.x transaction {transactionId}",
                 chargePointId: stationId);
             return new JObject { ["status"] = "Rejected" };
         }

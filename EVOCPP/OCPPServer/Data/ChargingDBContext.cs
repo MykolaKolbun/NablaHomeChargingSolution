@@ -9,6 +9,7 @@ namespace OCPPServer.Data
 
         public DbSet<Plug>     Plugs     => Set<Plug>();
         public DbSet<ErrorLog> ErrorLogs => Set<ErrorLog>();
+        public DbSet<PlugConnector> PlugConnectors => Set<PlugConnector>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -16,6 +17,14 @@ namespace OCPPServer.Data
             modelBuilder.Entity<Plug>()
                 .HasIndex(p => p.OcppId)
                 .IsUnique();
+
+            modelBuilder.Entity<PlugConnector>()
+                .HasIndex(c => new { c.OcppId, c.ConnectorId })
+                .IsUnique();
+            modelBuilder.Entity<PlugConnector>()
+                .HasIndex(c => new { c.OcppId, c.TransactionId });
+            modelBuilder.Entity<PlugConnector>()
+                .Property(c => c.MeterStartWh).HasColumnType("numeric");
         }
     }
 }

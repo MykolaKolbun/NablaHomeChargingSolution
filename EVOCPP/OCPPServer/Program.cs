@@ -121,6 +121,11 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChargingDBContext>();
     db.Database.Migrate();
+
+    // Local transaction IDs come from an in-memory counter: never re-issue the ID of a
+    // session that was still running when the server stopped.
+    ChargingStationConnections.EnsureTransactionIdsAbove(
+        ConnectorStore.MaxOpenTransactionIdAsync(db).GetAwaiter().GetResult());
 }
 
 // ── Trace system ──────────────────────────────────────────────────────────────
@@ -238,13 +243,42 @@ if (app.Environment.IsDevelopment())
 
 // ── REST API: admin plug endpoints ────────────────────────────────────────────
 
+// Top-level meter fields describe connector 1 (legacy single-connector view);
+// "connectors" lists every connector of the station with its live session data.
+static object ConnectorsView(string ocppId, IEnumerable<PlugConnector> rows)
+{
+    var state = ChargingStationConnections.Get(ocppId);
+    var ids = rows.Select(r => r.ConnectorId)
+        .Union(state?.Connectors.Keys ?? Enumerable.Empty<int>())
+        .OrderBy(id => id);
+    return ids.Select(id =>
+    {
+        var row  = rows.FirstOrDefault(r => r.ConnectorId == id);
+        var live = state != null && state.Connectors.TryGetValue(id, out var c) ? c : null;
+        return new
+        {
+            connectorId    = id,
+            status         = live?.Status ?? row?.Status,
+            row?.LastStatusUpdate,
+            transactionId  = live?.LocalTxId ?? row?.TransactionId,
+            meterValueWh   = live?.MeterValueWh,
+            meterStartWh   = live?.MeterStartWh ?? row?.MeterStartWh,
+            currentPowerKw = live?.CurrentPowerKw,
+            stateOfCharge  = live?.StateOfCharge,
+            carId          = live?.CarId,
+        };
+    }).ToList();
+}
+
 app.MapGet("/api/admin/plugs", async (ChargingDBContext db) =>
 {
     var plugs = await db.Plugs.OrderBy(p => p.OcppId).ToListAsync();
+    var rows  = await db.PlugConnectors.AsNoTracking().ToListAsync();
 
     var result = plugs.Select(p =>
     {
         var state = ChargingStationConnections.Get(p.OcppId);
+        var c1    = state != null && state.Connectors.TryGetValue(1, out var c) ? c : null;
         return new
         {
             p.OcppId, p.Status, p.IsOnline,
@@ -252,11 +286,12 @@ app.MapGet("/api/admin/plugs", async (ChargingDBContext db) =>
             p.Vendor, p.ChargePointModel, p.FirmwareVersion, p.OcppVersion,
             p.LastStatusUpdate, p.CreatedAt,
             isConnected    = state != null,
-            meterValueWh   = state?.MeterValueWh,
-            meterStartWh   = state?.MeterStartWh,
-            currentPowerKw = state?.CurrentPowerKw,
-            stateOfCharge  = state?.StateOfCharge,
-            meterType      = state?.Adapter.MeterType
+            meterValueWh   = c1?.MeterValueWh,
+            meterStartWh   = c1?.MeterStartWh,
+            currentPowerKw = c1?.CurrentPowerKw,
+            stateOfCharge  = c1?.StateOfCharge,
+            meterType      = state?.Adapter.MeterType,
+            connectors     = ConnectorsView(p.OcppId, rows.Where(r => r.OcppId == p.OcppId)),
         };
     });
 
@@ -268,7 +303,9 @@ app.MapGet("/api/admin/plugs/{ocppId}", async (string ocppId, ChargingDBContext 
     var plug = await db.Plugs.FirstOrDefaultAsync(p => p.OcppId == ocppId);
     if (plug is null) return Results.NotFound($"Plug '{ocppId}' not found.");
 
+    var rows  = await db.PlugConnectors.AsNoTracking().Where(r => r.OcppId == plug.OcppId).ToListAsync();
     var state = ChargingStationConnections.Get(plug.OcppId);
+    var c1    = state != null && state.Connectors.TryGetValue(1, out var c) ? c : null;
     return Results.Ok(new
     {
         plug.OcppId, plug.Status, plug.IsOnline,
@@ -277,11 +314,12 @@ app.MapGet("/api/admin/plugs/{ocppId}", async (string ocppId, ChargingDBContext 
         plug.FirmwareVersion, plug.SIMNr, plug.OcppVersion,
         plug.LastStatusUpdate, plug.CreatedAt,
         isConnected    = state != null,
-        meterValueWh   = state?.MeterValueWh,
-        meterStartWh   = state?.MeterStartWh,
-        currentPowerKw = state?.CurrentPowerKw,
-        stateOfCharge  = state?.StateOfCharge,
-        meterType      = state?.Adapter.MeterType
+        meterValueWh   = c1?.MeterValueWh,
+        meterStartWh   = c1?.MeterStartWh,
+        currentPowerKw = c1?.CurrentPowerKw,
+        stateOfCharge  = c1?.StateOfCharge,
+        meterType      = state?.Adapter.MeterType,
+        connectors     = ConnectorsView(plug.OcppId, rows),
     });
 });
 
