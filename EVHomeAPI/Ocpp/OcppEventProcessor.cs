@@ -62,10 +62,19 @@ public class OcppEventProcessor(
         return db.Stations.FirstOrDefaultAsync(s => s.OcppId == id, ct);
     }
 
-    /// <summary>The session currently in progress on a station (at most one by construction).</summary>
-    private Task<ChargingSession?> OpenSession(int stationId, CancellationToken ct) =>
+    /// <summary>The session in progress on a connector (at most one by construction).</summary>
+    private Task<ChargingSession?> OpenSession(int stationId, int connectorId, CancellationToken ct) =>
         db.Sessions
-            .Where(s => s.StationId == stationId && ChargingSession.OpenStatuses.Contains(s.Status))
+            .Where(s => s.StationId == stationId && s.ConnectorId == connectorId &&
+                        ChargingSession.OpenStatuses.Contains(s.Status))
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefaultAsync(ct);
+
+    /// <summary>The open session running OCPP transaction <paramref name="transactionId"/> on the station.</summary>
+    private Task<ChargingSession?> OpenSessionByTransaction(int stationId, int transactionId, CancellationToken ct) =>
+        db.Sessions
+            .Where(s => s.StationId == stationId && s.OcppTransactionId == transactionId &&
+                        ChargingSession.OpenStatuses.Contains(s.Status))
             .OrderByDescending(s => s.Id)
             .FirstOrDefaultAsync(ct);
 
@@ -78,24 +87,31 @@ public class OcppEventProcessor(
 
         station.IsOnline     = e.IsConnected;
         station.LastStatusAt = Now;
-        if (e.ConnectorId == 1) station.ConnectorStatus = e.Status;   // home chargers: one connector
+        if (e.IsConnected && e.ConnectorId > 0)
+        {
+            await ConnectorStates.SetAsync(db, station.Id, e.ConnectorId, e.Status, Now, ct);
+            if (e.ConnectorId == 1) station.ConnectorStatus = e.Status;   // legacy single-connector view
+        }
         await db.SaveChangesAsync(ct);
 
         await notifier.StatusUpdated(new StatusUpdatedMsg(station.Id, e.ConnectorId, e.Status, e.IsConnected, e.CarId));
 
-        var session = await OpenSession(station.Id, ct);
-        if (session is null) return;
-
         if (!e.IsConnected)
         {
-            // Charger went silent mid-charge (power cut or network). Stopping is left alone:
-            // the user wanted it stopped, so it must not be resumed (watchdog finishes it).
-            if (session.Status == SessionStatus.Active)
-                await resume.PauseAsync(session, "ChargerOffline", ct);
+            // Charger went silent mid-charge (power cut or network) — every connector of it.
+            // Stopping is left alone: the user wanted it stopped, so it must not be resumed
+            // (watchdog finishes it).
+            var active = await db.Sessions
+                .Where(s => s.StationId == station.Id && s.Status == SessionStatus.Active)
+                .ToListAsync(ct);
+            foreach (var s in active)
+                await resume.PauseAsync(s, "ChargerOffline", ct);
             return;
         }
 
-        if (session.Status != SessionStatus.Paused || e.ConnectorId != 1) return;
+        if (e.ConnectorId <= 0) return;
+        var session = await OpenSession(station.Id, e.ConnectorId, ct);
+        if (session is null || session.Status != SessionStatus.Paused) return;
 
         if (session.OcppTransactionId is not null)
         {
@@ -154,7 +170,8 @@ public class OcppEventProcessor(
         var station = await FindStation(e.OcppId, ct);
         if (station is null) return;
 
-        var session = await OpenSession(station.Id, ct);
+        var connectorId = e.ConnectorId > 0 ? e.ConnectorId : 1;
+        var session = await OpenSession(station.Id, connectorId, ct);
 
         if (session?.Status == SessionStatus.Paused)
         {
@@ -185,7 +202,7 @@ public class OcppEventProcessor(
             // An older transaction never got its StopTransaction (e.g. charger rebooted).
             CloseSession(session, meterStopWh: null, SessionStopReason.ChargerInitiated);   // keep last metered energy
             // Save now: the new open session below must not coexist with this one
-            // (unique filtered index IX_Sessions_OneOpenPerStation is checked per statement).
+            // (unique filtered index IX_Sessions_OneOpenPerConnector is checked per statement).
             await db.SaveChangesAsync(ct);
             logger.LogWarning("Station {OcppId}: closing stale session {SessionId} on new transaction {TxId}",
                 e.OcppId, session.Id, e.TransactionId);
@@ -209,6 +226,7 @@ public class OcppEventProcessor(
             session = new ChargingSession
             {
                 StationId   = station.Id,
+                ConnectorId = connectorId,
                 UserId      = ownerId.Value,
                 InitiatedBy = SessionInitiator.Charger,
                 CreatedAt   = Now,
@@ -232,7 +250,9 @@ public class OcppEventProcessor(
         var station = await FindStation(e.OcppId, ct);
         if (station is null) return;
 
-        var session = await OpenSession(station.Id, ct);
+        // Whose meter: the transaction if EVOCPP knows it, else the connector's open session.
+        var session = (e.TransactionId is { } tx ? await OpenSessionByTransaction(station.Id, tx, ct) : null)
+                      ?? await OpenSession(station.Id, e.ConnectorId > 0 ? e.ConnectorId : 1, ct);
         if (session is null || session.Status == SessionStatus.Pending) return;
         if (session.Status == SessionStatus.Paused)
         {

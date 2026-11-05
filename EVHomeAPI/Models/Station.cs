@@ -24,7 +24,10 @@ public class Station
 
     // ── Live state mirrored from EVOCPP ──────────────────────────────────────
     public bool      IsOnline        { get; set; }
-    /// <summary>Connector 1 status as reported by the charger (OCPP 1.6 vocabulary), e.g. Available, Preparing, Charging.</summary>
+    /// <summary>
+    /// Connector 1 status as reported by the charger (OCPP 1.6 vocabulary), e.g. Available, Preparing, Charging.
+    /// Kept for single-connector clients; every connector's status is in <see cref="Connectors"/>.
+    /// </summary>
     public string?   ConnectorStatus { get; set; }
     public DateTime? LastStatusAt    { get; set; }
 
@@ -42,6 +45,7 @@ public class Station
     /// </summary>
     public bool      ManageLimit     { get; set; } = true;
 
-    public ICollection<StationAccess>   Accesses { get; set; } = [];
+    public ICollection<StationAccess>    Accesses   { get; set; } = [];
+    public ICollection<StationConnector> Connectors { get; set; } = [];
     public ICollection<ChargingSession> Sessions { get; set; } = [];
 }

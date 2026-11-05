@@ -11,6 +11,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ChargingSession>     Sessions      => Set<ChargingSession>();
     public DbSet<SessionMeterReading> MeterReadings => Set<SessionMeterReading>();
     public DbSet<DeviceToken>         DeviceTokens  => Set<DeviceToken>();
+    public DbSet<StationConnector>    StationConnectors => Set<StationConnector>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -57,12 +58,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(s => s.Soc).HasPrecision(5, 1);
             e.Ignore(s => s.IsOpen);
             e.HasIndex(s => new { s.StationId, s.Status });
-            // At most one open session per station — guards concurrent Start requests.
-            e.HasIndex(s => s.StationId)
+            // At most one open session per connector — guards concurrent Start requests.
+            // (A station can have several connectors, each with its own session.)
+            e.HasIndex(s => new { s.StationId, s.ConnectorId })
                 .IsUnique()
                 .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping', 'Paused')")
-                .HasDatabaseName("IX_Sessions_OneOpenPerStation");
+                .HasDatabaseName("IX_Sessions_OneOpenPerConnector");
             e.HasIndex(s => s.TrackingId);
+        });
+
+        b.Entity<StationConnector>(e =>
+        {
+            e.HasKey(c => new { c.StationId, c.ConnectorId });
+            e.HasOne(c => c.Station).WithMany(s => s.Connectors).HasForeignKey(c => c.StationId).OnDelete(DeleteBehavior.Cascade);
+            e.Property(c => c.Status).HasMaxLength(32);
         });
 
         b.Entity<DeviceToken>(e =>

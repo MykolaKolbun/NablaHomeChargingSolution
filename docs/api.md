@@ -32,8 +32,11 @@ Emails are case-insensitive (stored lower-case). Rate limit: 10 req/min per clie
 | GET 🔒 | `/api/stations/{id}` | — | `200 StationDto` · `404` (also when no access) |
 | POST 🔒 | `/api/stations/claim` | `{ocppId, claimCode}` | `200 StationDto` (role `Owner`) · `400` invalid ID/code/already claimed |
 
-`StationDto`: `{id, ocppId, name, role: "Owner"|"Member", claimedAt, isOnline, connectorStatus, lastStatusAt}`
+`StationDto`: `{id, ocppId, name, role: "Owner"|"Member", claimedAt, isOnline, connectorStatus, lastStatusAt, …, connectors}`
 — `connectorStatus` is connector 1 in OCPP 1.6 vocabulary (`Available`, `Preparing`, `Charging`, `SuspendedEV`, `Finishing`, `Faulted`, …).
+`connectors`: `[{connectorId, status, lastStatusAt}]` — every connector the charger has reported (connector 1 always
+listed). A station is one OCPP id; a DC charger such as Wallbox Supernova has connectors 1 and 2 under it, each
+with its own session and meter.
 
 Claim codes: format `XXXX-XXXX`, case and dashes ignored, **one-time**. Unknown station, wrong code
 and already-claimed return the same `400` (no station-ID discovery). Rate limit: 5 req/min per client IP.
@@ -42,9 +45,10 @@ and already-claimed return the same `400` (no station-ID discovery). Rate limit:
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST 🔒 | `/api/stations/{id}/start` | `{connectorId?: 1}` | `202 SessionDto` (Pending) · `409` offline / session in progress · `503` gateway down |
-| POST 🔒 | `/api/stations/{id}/stop` | — | `202 SessionDto` (Stopping; idempotent) · `200 SessionDto` (Completed — a Paused session with nothing charging is ended at once) · `409` idle, still starting or resuming |
-| GET 🔒 | `/api/stations/{id}/session` | — | `200 SessionDto` in progress · `204` idle |
+| POST 🔒 | `/api/stations/{id}/start` | `{connectorId?: 1}` (1–16) | `202 SessionDto` (Pending) · `409` offline / session in progress **on that connector** · `503` gateway down |
+| POST 🔒 | `/api/stations/{id}/stop?connectorId=` | — | `202 SessionDto` (Stopping; idempotent) · `200 SessionDto` (Completed — a Paused session with nothing charging is ended at once) · `409` idle, still starting or resuming, or several sessions open and no `connectorId` |
+| GET 🔒 | `/api/stations/{id}/session?connectorId=` | — | `200 SessionDto` in progress (without `connectorId`: the newest open one) · `204` idle |
+| GET 🔒 | `/api/stations/{id}/sessions/open` | — | `200 [SessionDto]` — every open session, ordered by connector |
 | GET 🔒 | `/api/stations/{id}/sessions?limit=50` | — | `200 [SessionDto]` newest first (max 200) |
 | GET 🔒 | `/api/sessions/{id}` | — | `200 SessionDto` · `404` |
 | GET 🔒 | `/api/sessions/{id}/meter-history` | — | `200 [{elapsedSec, currentPowerKw, soc}]` ~1 sample / 30 s |
@@ -62,7 +66,7 @@ EVOCPP sets a `TxDefaultProfile` (all future sessions, stored on the charger) an
 a `TxProfile` for it. The charger's answer arrives as SignalR `ChargingLimitUpdated {stationId, limitA, status}`;
 answers to a superseded request are ignored.
 
-`SessionDto`: `{id, stationId, status, initiatedBy: "App"|"Charger", stopReason?: "UserInitiated"|"ChargerInitiated"|"PowerLoss", createdAt, startedAt, endedAt, energyKwh, currentPowerKw, soc, transactionId}`
+`SessionDto`: `{id, stationId, status, initiatedBy: "App"|"Charger", stopReason?: "UserInitiated"|"ChargerInitiated"|"PowerLoss", createdAt, startedAt, endedAt, energyKwh, currentPowerKw, soc, transactionId, connectorId}`
 — `energyKwh` covers all transactions of the session; `transactionId` is `null` while Paused between transactions.
 
 Session lifecycle:
@@ -82,7 +86,12 @@ Power loss:    Active ──charger offline / StopTransaction(PowerLoss)── S
 with no answer from EVOCPP for 3 min is resolved by the watchdog (`Timeout`); a Stopping session whose
 charger is offline is completed instead. Paused sessions are driven by `SessionResumeService`
 (events + watchdog), see architecture D12.
-One open session per station (Pending/Active/Stopping/Paused) is enforced by a unique filtered index.
+One open session per **connector** (Pending/Active/Stopping/Paused) is enforced by a unique filtered index. A power
+cut pauses every Active session of the station; each connector is then resumed or ended on its own status.
+
+**Current limit on multi-connector chargers:** the limit is a `TxDefaultProfile`, which OCPP 1.6 applies **per
+connector** — two cars could draw 2 × the limit. Keep such chargers on `manageLimit: false` (or off a limited house
+supply) until a station-wide `ChargePointMaxProfile` is implemented.
 
 ## Developer tools (owner only; 404 unless `DevTools:Enabled`)
 

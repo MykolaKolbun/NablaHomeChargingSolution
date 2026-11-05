@@ -36,8 +36,13 @@ public class ChargingLimitService(
             return true;
         }
 
+        // The TxDefaultProfile (connector 0) covers every connector; the command carries one running
+        // transaction for an immediate TxProfile. Multi-connector chargers: OCPP 1.6 applies the
+        // default profile PER CONNECTOR, so two cars could draw 2 × limit — such chargers must not
+        // be on a limited house supply until a station-wide ChargePointMaxProfile is used.
         var runningTx = await db.Sessions
             .Where(s => s.StationId == station.Id && (s.Status == SessionStatus.Active || s.Status == SessionStatus.Stopping))
+            .OrderBy(s => s.ConnectorId)
             .Select(s => s.OcppTransactionId)
             .FirstOrDefaultAsync(ct);
 

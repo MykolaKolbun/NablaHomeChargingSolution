@@ -94,12 +94,14 @@ public class SessionResumeService(
         if (s.Status != SessionStatus.Paused || s.OcppTransactionId is not null) return;
         if (!station.IsOnline) return;
 
-        if (station.ConnectorStatus == "Available")
+        // The session's own connector — another connector of the station says nothing about this car.
+        var (connectorStatus, _) = await ConnectorStates.GetAsync(db, station, s.ConnectorId, ct);
+        if (connectorStatus == "Available")
         {
             await GiveUpAsync(s, "Unplugged", ct);
             return;
         }
-        if (!CarPlugged(station.ConnectorStatus)) return;   // Faulted / Unavailable / unknown — wait
+        if (!CarPlugged(connectorStatus)) return;   // Faulted / Unavailable / unknown — wait
 
         if (s.ResumeRequestedAt is { } last && Now - last < RetryAfter) return;   // attempt in flight
         if (s.ResumeAttempts >= MaxAttempts)
@@ -170,7 +172,7 @@ public class SessionResumeService(
             // connector says it is not charging → the transaction is gone; bank it and resume.
             if (s.OcppTransactionId is not null && s.Station.IsOnline &&
                 s.Station.LastStatusAt is { } seen && Now - seen > LostTransactionAfter &&
-                !TransactionRunning(s.Station.ConnectorStatus))
+                !TransactionRunning((await ConnectorStates.GetAsync(db, s.Station, s.ConnectorId, ct)).Status))
             {
                 logger.LogWarning("Station {OcppId}: transaction {TxId} of paused session {SessionId} lost — resuming",
                     s.Station.OcppId, s.OcppTransactionId, s.Id);

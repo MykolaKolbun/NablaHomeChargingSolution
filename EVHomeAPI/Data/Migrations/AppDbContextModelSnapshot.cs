@@ -105,14 +105,14 @@ namespace EVHomeAPI.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("StationId")
-                        .IsUnique()
-                        .HasDatabaseName("IX_Sessions_OneOpenPerStation")
-                        .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping', 'Paused')");
-
                     b.HasIndex("TrackingId");
 
                     b.HasIndex("UserId");
+
+                    b.HasIndex("StationId", "ConnectorId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Sessions_OneOpenPerConnector")
+                        .HasFilter("\"Status\" IN ('Pending', 'Active', 'Stopping', 'Paused')");
 
                     b.HasIndex("StationId", "Status");
 
@@ -284,6 +284,26 @@ namespace EVHomeAPI.Data.Migrations
                     b.ToTable("StationAccesses");
                 });
 
+            modelBuilder.Entity("EVHomeAPI.Models.StationConnector", b =>
+                {
+                    b.Property<int>("StationId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ConnectorId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("LastStatusAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("StationId", "ConnectorId");
+
+                    b.ToTable("StationConnectors");
+                });
+
             modelBuilder.Entity("EVHomeAPI.Models.User", b =>
                 {
                     b.Property<int>("Id")
@@ -377,6 +397,17 @@ namespace EVHomeAPI.Data.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("EVHomeAPI.Models.StationConnector", b =>
+                {
+                    b.HasOne("EVHomeAPI.Models.Station", "Station")
+                        .WithMany("Connectors")
+                        .HasForeignKey("StationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Station");
+                });
+
             modelBuilder.Entity("EVHomeAPI.Models.ChargingSession", b =>
                 {
                     b.Navigation("MeterReadings");
@@ -385,6 +416,8 @@ namespace EVHomeAPI.Data.Migrations
             modelBuilder.Entity("EVHomeAPI.Models.Station", b =>
                 {
                     b.Navigation("Accesses");
+
+                    b.Navigation("Connectors");
 
                     b.Navigation("Sessions");
                 });

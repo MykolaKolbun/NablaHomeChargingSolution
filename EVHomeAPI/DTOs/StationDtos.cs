@@ -16,11 +16,30 @@ public record StationDto(
     int       MaxCurrentA,
     decimal?  CurrentLimitA,
     string?   LimitStatus,
-    bool      ManageLimit)
+    bool      ManageLimit,
+    List<ConnectorDto> Connectors)
 {
+    /// <summary>
+    /// ConnectorStatus = connector 1 (single-connector clients). Connectors lists every connector the
+    /// charger has reported, connector 1 always included. Pass a station loaded with its Connectors.
+    /// </summary>
     public static StationDto From(Station s, StationRole role) => new(
         s.Id, s.OcppId, s.Name, role.ToString(), s.ClaimedAt, s.IsOnline, s.ConnectorStatus, s.LastStatusAt,
-        s.MaxCurrentA, s.CurrentLimitA, s.LimitStatus, s.ManageLimit);
+        s.MaxCurrentA, s.CurrentLimitA, s.LimitStatus, s.ManageLimit, ConnectorDto.ListOf(s));
+}
+
+public record ConnectorDto(int ConnectorId, string? Status, DateTime? LastStatusAt)
+{
+    public static List<ConnectorDto> ListOf(Station s)
+    {
+        var list = s.Connectors
+            .OrderBy(c => c.ConnectorId)
+            .Select(c => new ConnectorDto(c.ConnectorId, c.Status, c.LastStatusAt))
+            .ToList();
+        if (list.All(c => c.ConnectorId != 1))
+            list.Insert(0, new ConnectorDto(1, s.ConnectorStatus, s.LastStatusAt));
+        return list;
+    }
 }
 
 /// <summary>limitA null = at the installation maximum (MaxCurrentA), never unlimited. Range 6…MaxCurrentA, step 0.1.</summary>

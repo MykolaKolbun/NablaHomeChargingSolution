@@ -12,15 +12,22 @@ public record StatusChangedEvent(string OcppId, string Status, int ConnectorId, 
 
 public record AuthorizeRequestedEvent(string OcppId, string CarId, int? ConnectorId);
 
-public record TransactionStartedEvent(string OcppId, int TransactionId, decimal? MeterStartWh);
+/// <summary>ConnectorId: connector of the transaction (a station can have several). Older EVOCPP omits it → 1.</summary>
+public record TransactionStartedEvent(string OcppId, int TransactionId, decimal? MeterStartWh, int ConnectorId = 1);
 
-/// <summary>Reason: OCPP 1.6 StopTransaction.reason (PowerLoss, EVDisconnected, Remote, Local, Reboot, …); null = omitted.</summary>
-public record TransactionStoppedEvent(string OcppId, int TransactionId, decimal MeterStopWh, decimal? MeterStartWh, string? Reason = null);
+/// <summary>
+/// Reason: OCPP 1.6 StopTransaction.reason (PowerLoss, EVDisconnected, Remote, Local, Reboot, …); null = omitted.
+/// ConnectorId: resolved by EVOCPP from the transaction; null when unknown.
+/// </summary>
+public record TransactionStoppedEvent(string OcppId, int TransactionId, decimal MeterStopWh, decimal? MeterStartWh,
+    string? Reason = null, int? ConnectorId = null);
 
 /// <summary>BootNotification accepted — volatile charger state (the limit profile) may be gone.</summary>
 public record ChargerBootedEvent(string OcppId);
 
-public record MeterUpdatedEvent(string OcppId, decimal MeterValueWh, decimal? MeterStartWh, double? CurrentPowerKw, decimal? Soc);
+/// <summary>Each connector has its own meter: ConnectorId / TransactionId say whose reading this is (older EVOCPP: 1 / null).</summary>
+public record MeterUpdatedEvent(string OcppId, decimal MeterValueWh, decimal? MeterStartWh, double? CurrentPowerKw, decimal? Soc,
+    int ConnectorId = 1, int? TransactionId = null);
 
 /// <summary>Status: Accepted (StartTransaction received) | Rejected | Timeout.</summary>
 public record RemoteStartResponseEvent(string OcppId, string Status, int ConnectorId, string IdTag, Guid? TrackingId);

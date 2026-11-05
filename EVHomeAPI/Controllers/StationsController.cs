@@ -29,12 +29,12 @@ public class StationsController(
     public async Task<ActionResult<List<StationDto>>> GetMine()
     {
         var userId = User.GetUserId();
-        var list = await db.StationAccesses
+        var accesses = await db.StationAccesses
+            .Include(a => a.Station).ThenInclude(s => s.Connectors)
             .Where(a => a.UserId == userId)
             .OrderBy(a => a.Station.Name)
-            .Select(a => StationDto.From(a.Station, a.Role))
             .ToListAsync();
-        return Ok(list);
+        return Ok(accesses.Select(a => StationDto.From(a.Station, a.Role)).ToList());
     }
 
     /// <summary>404 when the station does not exist or the user has no access (no existence leak).</summary>
@@ -95,14 +95,16 @@ public class StationsController(
         if (access is null) return NotFound();
         var station = access.Station;
 
+        var connectorId = req?.ConnectorId ?? 1;
+        if (connectorId < 1) return BadRequest("connectorId must be 1 or more.");
         if (!station.IsOnline) return Conflict("Station is offline.");
-        if (await HasOpenSession(id)) return Conflict("A session is already in progress.");
+        if (await OpenSessionQuery(id, connectorId).AnyAsync()) return Conflict("A session is already in progress.");
 
         var session = new ChargingSession
         {
             StationId   = id,
             UserId      = access.UserId,
-            ConnectorId = req?.ConnectorId ?? 1,
+            ConnectorId = connectorId,
             InitiatedBy = SessionInitiator.App,
             Status      = SessionStatus.Pending,
             TrackingId  = Guid.NewGuid(),
@@ -115,7 +117,7 @@ public class StationsController(
         }
         catch (DbUpdateException)
         {
-            return Conflict("A session is already in progress.");   // lost the race (IX_Sessions_OneOpenPerStation)
+            return Conflict("A session is already in progress.");   // lost the race (IX_Sessions_OneOpenPerConnector)
         }
 
         try
@@ -138,14 +140,17 @@ public class StationsController(
     /// <summary>
     /// Ask the charger to stop (RemoteStopTransaction). Returns 202 with a Stopping
     /// session; the outcome arrives over SignalR (SessionFinalized / SessionStopFailed).
-    /// Idempotent while already Stopping.
+    /// Idempotent while already Stopping. connectorId (query) selects the connector; it may be omitted
+    /// while only one session is open on the station.
     /// </summary>
     [HttpPost("{id:int}/stop")]
-    public async Task<ActionResult<SessionDto>> Stop(int id)
+    public async Task<ActionResult<SessionDto>> Stop(int id, [FromQuery] int? connectorId = null)
     {
         if (await FindAccess(id) is not { } access) return NotFound();
 
-        var session = await OpenSessionQuery(id).FirstOrDefaultAsync();
+        var open = await OpenSessionQuery(id, connectorId).ToListAsync();
+        if (open.Count > 1) return Conflict("Several sessions are in progress — specify connectorId.");
+        var session = open.FirstOrDefault();
         if (session is null) return Conflict("No session in progress.");
         if (session.Status == SessionStatus.Pending) return Conflict("Session is still starting.");
         if (session.Status == SessionStatus.Stopping) return Accepted(SessionDto.From(session));
@@ -216,13 +221,25 @@ public class StationsController(
         return Accepted(StationDto.From(station, access.Role));
     }
 
-    /// <summary>Session in progress (Pending/Active/Stopping/Paused), or 204 when idle.</summary>
+    /// <summary>
+    /// Session in progress (Pending/Active/Stopping/Paused), or 204 when idle. connectorId (query)
+    /// selects a connector; without it the most recent open session of the station is returned.
+    /// </summary>
     [HttpGet("{id:int}/session")]
-    public async Task<ActionResult<SessionDto>> GetOpenSession(int id)
+    public async Task<ActionResult<SessionDto>> GetOpenSession(int id, [FromQuery] int? connectorId = null)
     {
         if (await FindAccess(id) is null) return NotFound();
-        var session = await OpenSessionQuery(id).FirstOrDefaultAsync();
+        var session = await OpenSessionQuery(id, connectorId).FirstOrDefaultAsync();
         return session is null ? NoContent() : Ok(SessionDto.From(session));
+    }
+
+    /// <summary>All sessions in progress on the station, one per connector at most, ordered by connector.</summary>
+    [HttpGet("{id:int}/sessions/open")]
+    public async Task<ActionResult<List<SessionDto>>> GetOpenSessions(int id)
+    {
+        if (await FindAccess(id) is null) return NotFound();
+        var sessions = await OpenSessionQuery(id).ToListAsync();
+        return Ok(sessions.OrderBy(s => s.ConnectorId).Select(SessionDto.From).ToList());
     }
 
     /// <summary>Most recent sessions first.</summary>
@@ -244,14 +261,14 @@ public class StationsController(
     {
         var userId = User.GetUserId();
         return db.StationAccesses
-            .Include(a => a.Station)
+            .Include(a => a.Station).ThenInclude(s => s.Connectors)
             .FirstOrDefaultAsync(a => a.StationId == stationId && a.UserId == userId);
     }
 
-    private IQueryable<ChargingSession> OpenSessionQuery(int stationId) =>
+    /// <summary>Open sessions of the station, or of one connector when <paramref name="connectorId"/> is given; newest first.</summary>
+    private IQueryable<ChargingSession> OpenSessionQuery(int stationId, int? connectorId = null) =>
         db.Sessions
-            .Where(s => s.StationId == stationId && ChargingSession.OpenStatuses.Contains(s.Status))
+            .Where(s => s.StationId == stationId && ChargingSession.OpenStatuses.Contains(s.Status) &&
+                        (connectorId == null || s.ConnectorId == connectorId))
             .OrderByDescending(s => s.Id);
-
-    private Task<bool> HasOpenSession(int stationId) => OpenSessionQuery(stationId).AnyAsync();
 }
