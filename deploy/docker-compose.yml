@@ -75,6 +75,7 @@ services:
       - TZ=Europe/Kyiv
       - DOTNET_GCHeapHardLimit=0x6400000          # 100 MB managed heap
       - DOTNET_gcServer=0
+      - DOTNET_GCConserveMemory=5                 # compact harder, return memory to the OS
       - ConnectionStrings__DefaultConnection=Host=db;Port=5432;Database=evocpp;Username=nablahome;Password=${HOME_DB_PASSWORD}
       - RabbitMQ__Host=rabbitmq
       - RabbitMQ__Username=nablahome
@@ -104,6 +105,7 @@ services:
       - TZ=Europe/Kyiv
       - DOTNET_GCHeapHardLimit=0x6400000          # 100 MB managed heap
       - DOTNET_gcServer=0
+      - DOTNET_GCConserveMemory=5                 # compact harder, return memory to the OS
       - ConnectionStrings__Default=Host=db;Port=5432;Database=nablahome;Username=nablahome;Password=${HOME_DB_PASSWORD}
       # Not ":?"-required here so that the evocpp workflow can run before these exist;
       # EVHomeAPI itself refuses to start in Production without strong values.

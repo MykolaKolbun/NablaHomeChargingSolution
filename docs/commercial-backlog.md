@@ -213,3 +213,20 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   remove + publish disconnect only if the closing socket is still the current one (lock both).
 - **Reference implementation here:** EVOCPP `efbc0fe` (+ tests in `ChargingStationConnectionsTests`).
 - **Found:** 2026-11-06.
+
+## CB-013 · Commercial stack on the shared Pi has no memory limits (Server GC, untuned RabbitMQ)
+- **Target:** `EVChargingApi/docker-compose.yml` (services `api`, `ocpp`, `rabbitmq`, `db`, `admin`, `download`)
+- **Status:** idea
+- **Why:** the Pi has 1 GB RAM (zram swap only compresses it). On 2026-11-06 the Pi filled swap, iowait hit 80 % and
+  it rebooted in a loop until other stacks were stopped. Measured RSS+swap: `EVChargingApi.dll` 129 MB,
+  `OCPPServer.dll` 113 MB, RabbitMQ 83 MB — no `mem_limit`, no GC settings (ASP.NET defaults to **Server GC**:
+  one heap per core, keeps memory), default RabbitMQ watermark. Nabla Home's tuned stack runs in ≈ 210 MB.
+- **Fix (values proven on Nabla Home, `deploy/docker-compose.yml`):**
+  - .NET services: `mem_limit: 160m`, `DOTNET_gcServer=0`, `DOTNET_GCConserveMemory=5`,
+    `DOTNET_GCHeapHardLimit=0x6400000` (100 MB managed heap)
+  - RabbitMQ: `mem_limit: 192m`, `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 1:1 +A 4"`, config file
+    `vm_memory_high_watermark.absolute = 110MiB` (the env var is rejected by RabbitMQ 3.13+)
+  - Postgres: keep it shared, but small `shared_buffers` / `work_mem` / `max_connections` if it is only a sandbox
+  - `admin` / `download` (nginx): `mem_limit: 32m`
+- **Reference here:** `deploy/docker-compose.yml`.
+- **Found:** 2026-11-06, Pi hang during the Supernova tests.
