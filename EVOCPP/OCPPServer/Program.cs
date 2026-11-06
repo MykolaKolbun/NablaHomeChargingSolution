@@ -184,9 +184,17 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId,
 
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync(selectedProtocol);
 
-    ChargingStationConnections.Add(stationId, webSocket, selectedProtocol);
+    var superseded = ChargingStationConnections.Add(stationId, webSocket, selectedProtocol);
 
     tracer.Info("WS", $"Station {stationId} connected — protocol: {selectedProtocol}", chargePointId: stationId);
+    if (superseded != null)
+    {
+        // The charger reconnected while its old socket was still open: close the stale one.
+        // Its finally-block sees it is no longer current and does not report the station offline.
+        tracer.Warning("WS", $"Station {stationId}: new connection replaced a still-open one — aborting the old socket",
+            chargePointId: stationId);
+        try { superseded.Abort(); } catch { /* already gone */ }
+    }
 
     // Publish a reconnect event so EVChargingApi exits the Offline state immediately.
     // connectorId=0 clears all connectors. If the charger sends StatusNotification
@@ -229,9 +237,19 @@ app.Map("/ws/{stationId}", async (HttpContext context, string stationId,
     }
     finally
     {
-        ChargingStationConnections.Remove(stationId);
-        tracer.Info("WS", $"Station {stationId} disconnected.", chargePointId: stationId);
-        communicator.PushDisconnect(stationId);
+        // Only the station's CURRENT connection may take it offline. A superseded socket closing
+        // after a reconnect used to remove the live entry (commands were then discarded as
+        // "not connected") and publish a false Offline that paused running sessions.
+        if (ChargingStationConnections.RemoveIfCurrent(stationId, webSocket))
+        {
+            tracer.Info("WS", $"Station {stationId} disconnected.", chargePointId: stationId);
+            communicator.PushDisconnect(stationId);
+        }
+        else
+        {
+            tracer.Info("WS", $"Station {stationId}: superseded connection closed (station still connected).",
+                chargePointId: stationId);
+        }
     }
 });
 

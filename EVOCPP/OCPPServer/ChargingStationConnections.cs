@@ -24,10 +24,49 @@ public static class ChargingStationConnections
 
     // ── Connection lifecycle ───────────────────────────────────────────────────
 
-    public static void Add(string stationId, WebSocket socket, string protocol)
-        => _states[stationId] = new ConnectorState { Socket = socket, Protocol = protocol };
+    /// <summary>
+    /// Registers a new connection. If the station is already connected (it reconnected before the
+    /// old socket closed — seen on Wallbox Supernova), the existing state is kept — sessions,
+    /// meters and waiters belong to the charger, not to a socket — and only the socket is swapped.
+    /// Returns the superseded socket (the caller should abort it), or null.
+    /// </summary>
+    public static WebSocket? Add(string stationId, WebSocket socket, string protocol)
+    {
+        lock (_connectLock)
+        {
+            if (_states.TryGetValue(stationId, out var existing))
+            {
+                var superseded = ReferenceEquals(existing.Socket, socket) ? null : existing.Socket;
+                existing.Socket        = socket;
+                existing.Protocol      = protocol;
+                existing.LastMessageAt = DateTime.UtcNow;
+                return superseded;
+            }
+            _states[stationId] = new ConnectorState { Socket = socket, Protocol = protocol };
+            return null;
+        }
+    }
 
+    /// <summary>Serializes connect / disconnect so a socket swap and a removal cannot interleave.</summary>
+    private static readonly object _connectLock = new();
+
+    /// <summary>Unconditional removal (tests / admin).</summary>
     public static void Remove(string stationId) => _states.TryRemove(stationId, out _);
+
+    /// <summary>
+    /// Removes the station only if <paramref name="socket"/> is still its current connection.
+    /// Returns false when a newer connection has taken over — the station is NOT offline then,
+    /// and the caller must not publish a disconnect.
+    /// </summary>
+    public static bool RemoveIfCurrent(string stationId, WebSocket socket)
+    {
+        lock (_connectLock)
+        {
+            if (!_states.TryGetValue(stationId, out var state) || !ReferenceEquals(state.Socket, socket))
+                return false;
+            return _states.TryRemove(stationId, out _);
+        }
+    }
 
     /// <summary>Returns the full live state for a station, or null if not connected.</summary>
     public static ConnectorState? Get(string stationId)

@@ -20,7 +20,8 @@ namespace OCPPServer;
 /// </summary>
 public sealed class ConnectorState
 {
-    public required WebSocket Socket { get; init; }
+    /// <summary>The station's current WebSocket. Replaced when the charger reconnects before the old socket closed.</summary>
+    public required WebSocket Socket { get; set; }
     public string Protocol { get; set; } = "ocpp1.6";
 
     /// <summary>

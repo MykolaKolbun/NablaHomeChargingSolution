@@ -370,6 +370,45 @@ public class ChargingStationConnectionsTests
         ChargingStationConnections.Remove(stationId);
     }
 
+    // ── Reconnect before the old socket closed (Supernova, 2026-11-06) ─────────
+    // The old socket's finally-block used to Remove(stationId): the live entry vanished
+    // ("not connected — discarding" for every command) and a false Offline was published.
+
+    [Fact]
+    public void Reconnect_keeps_session_state_and_returns_the_superseded_socket()
+    {
+        var stationId = UniqueId();
+        var oldSocket = CreateFakeSocket();
+        var newSocket = CreateFakeSocket();
+
+        Assert.Null(ChargingStationConnections.Add(stationId, oldSocket, "ocpp1.6"));
+        ChargingStationConnections.Get(stationId)!.Connector(2).LocalTxId = 5;
+
+        var superseded = ChargingStationConnections.Add(stationId, newSocket, "ocpp1.6");
+
+        Assert.Same(oldSocket, superseded);
+        var state = ChargingStationConnections.Get(stationId)!;
+        Assert.Same(newSocket, state.Socket);
+        Assert.Equal(5, state.Connector(2).LocalTxId);     // the running session survives
+        ChargingStationConnections.Remove(stationId);
+    }
+
+    [Fact]
+    public void Closing_a_superseded_socket_does_not_take_the_station_offline()
+    {
+        var stationId = UniqueId();
+        var oldSocket = CreateFakeSocket();
+        var newSocket = CreateFakeSocket();
+        ChargingStationConnections.Add(stationId, oldSocket, "ocpp1.6");
+        ChargingStationConnections.Add(stationId, newSocket, "ocpp1.6");
+
+        Assert.False(ChargingStationConnections.RemoveIfCurrent(stationId, oldSocket));
+        Assert.Same(newSocket, ChargingStationConnections.GetSocket(stationId));   // commands still delivered
+
+        Assert.True(ChargingStationConnections.RemoveIfCurrent(stationId, newSocket));
+        Assert.Null(ChargingStationConnections.Get(stationId));
+    }
+
     private static string UniqueId() => Guid.NewGuid().ToString("N")[..8];
 
     /// <summary>
