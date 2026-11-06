@@ -405,7 +405,7 @@ Wallbox Service; доповнення — відповіддю на цей ли�
 ### Гайди Wallbox (вкладення до тікета, 2026-11-06): що з них випливає
 
 Файли: «QPM troubleshooting» (Fast chargers v3.2), «DC Meter Troubleshooting» (v3.0), «4G Modem Troubleshooting» (v3.1) —
-у користувача локально.
+у [`docs/datasheets/wallbox/`](../datasheets/wallbox/).
 
 **DC-лічильник — виправлення наших висновків**
 - Це **один двоканальний лічильник Acrel DJSF1352-RN**: Input 1 = CCS 1, Input 2 = CCS 2. `PMD:001` / `PMD:002` — його
