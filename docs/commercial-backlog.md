@@ -200,3 +200,16 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   EVHomeApp `4355d70` — connector picker. Open: house limit on multi-connector chargers needs a
   station-wide `ChargePointMaxProfile` (`TxDefaultProfile` applies per connector).
 - **Found:** 2026-11-05/06.
+
+## CB-012 · Reconnect race: a superseded socket takes a live station offline
+- **Target:** `OCPP_RD/OCPPServer/Program.cs` (WebSocket `finally` → `ChargingStationConnections.Remove(stationId)`,
+  line ~223), `ChargingStationConnections.Add`
+- **Status:** idea
+- **Why:** a charger that opens a new WebSocket before the old one closed (seen on Wallbox Supernova, 2026-11-06) is
+  registered under the new socket, then the old socket's `finally` removes the entry by id and publishes Offline.
+  Result: the charger keeps sending (MeterValues arrive) but every command is discarded as "not connected" — RemoteStop
+  of a running session failed twice — and the backend pauses / closes sessions on a false Offline.
+- **Fix:** on connect, keep the existing station state and swap the socket (abort the stale one); in `finally`
+  remove + publish disconnect only if the closing socket is still the current one (lock both).
+- **Reference implementation here:** EVOCPP `efbc0fe` (+ tests in `ChargingStationConnectionsTests`).
+- **Found:** 2026-11-06.
