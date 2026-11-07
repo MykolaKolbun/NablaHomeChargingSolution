@@ -512,3 +512,6 @@ Wallbox ICCID SIM для перевірки.
 після наступного перезавантаження або відключення живлення. Перевірено: `AutoChargeEnabled = false`,
 `ChargePointId = WBX669850`; профілів заряду ні Nabla Home, ні комерційний сервер станції не надсилали (0 SetChargingProfile).
 Модуль 4 (`OD2`) і донорський №4 — поза станцією / за рішенням користувача.
+Також повернуто `VehicleIDEnable = false` («EVCCID Data Transfer»; під час тестів на комерційному сервері було
+ввімкнено) — `Accepted`. Підсумок перевірки: `VehicleIDEnable=false`, `AutoChargeEnabled=false`,
+`ChargePointId=WBX669850`, `ConnectionUrl` → 1up — усе як у власника; станція перейде на 1up після перезавантаження.
