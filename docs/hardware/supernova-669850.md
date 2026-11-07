@@ -504,3 +504,11 @@ Wallbox ICCID SIM для перевірки.
 донорських модулів, **прохання доступу до COSMOS** (хоча б read-only) для телеметрії по QPM; модем — перевірка
 наступного тижня. Питання: `UVT:BAT` → `ISM:002:SAF:000` — модуль чи шафа; які відповіді очікує `DataTransfer`
 «VehicleID» і чи є документація на DataTransfer Wallbox.
+
+## Повернення власнику (2026-11-07)
+
+`ConnectionUrl` = `wss://ocpp.1up.energy/websocket/CentralSystemService/` — встановлено віддалено через адмін-REST
+комерційного OCPP_RD (`POST /api/admin/plugs/wbx669850/config`), відповідь `RebootRequired`: станція перейде на 1up
+після наступного перезавантаження або відключення живлення. Перевірено: `AutoChargeEnabled = false`,
+`ChargePointId = WBX669850`; профілів заряду ні Nabla Home, ні комерційний сервер станції не надсилали (0 SetChargingProfile).
+Модуль 4 (`OD2`) і донорський №4 — поза станцією / за рішенням користувача.
