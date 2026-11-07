@@ -515,3 +515,17 @@ Wallbox ICCID SIM для перевірки.
 Також повернуто `VehicleIDEnable = false` («EVCCID Data Transfer»; під час тестів на комерційному сервері було
 ввімкнено) — `Accepted`. Підсумок перевірки: `VehicleIDEnable=false`, `AutoChargeEnabled=false`,
 `ChargePointId=WBX669850`, `ConnectionUrl` → 1up — усе як у власника; станція перейде на 1up після перезавантаження.
+
+## Діагностичний архів зі станції (WebManager, 2026-11-07)
+
+`2025-02-13_09-20-47_GMT.tar.gz` (у користувача, `C:\temp`): `active_errors.json`, `system-info.json`
+(FW v4.6.4, SW 4.6.16), `software-version-control.txt` (збірка 2026-01-07, «Fix SQLite memory leak»), `dmesg.log`,
+`supernova-diagnostics.tar.gz` → по лог-файлу на кожен сервіс (`ocpp_client`, `evse_manager`, `charge_session`,
+`wbx_supernova_power_management`, `ccs_isose_1/2`, `connection_manager`, `mysqld`, …) + ротований `syslog_*.log.gz`.
+- **Логи сервісів — лише з останнього завантаження** (цей архів знято ~2 хв після перезавантаження ⇒ майже порожні).
+  Знімати **одразу після відтворення проблеми, без перезавантаження**.
+- **4G-модем (SIMCOM, syslog):** `SIMStatus: SIM_READY`, але `PS: Detached`, `MCC: 0, MNC: 0`, `IPv4 DISCONNECTED`,
+  модем перезапускається по колу (489 разів) ⇒ SIM є, але **в мережі не реєструється**: антена / покриття або SIM
+  деактивована в Wallbox. Це й пояснює «Wallbox: Disconnected».
+- Старий syslog (годинник показував 2047 р.): 25 хв, коли внутрішня БД станції (`mysql-service:3306`) була недоступна —
+  `cfg`, `telemetry_srvc`, `wbx_charger_info`, `cloud_pub_sub_*` падали тисячі разів. Коли саме — невідомо.
