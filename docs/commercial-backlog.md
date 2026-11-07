@@ -69,7 +69,7 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 
 ## CB-007 · Power loss mid-session is reported as a normal stop
 - **Target:** `OCPP_RD/OCPPServer/OCPP1.6 Models/Communicator.cs` (`HandleStopTransaction`), `RabbitMqPublisher.PublishTransactionStoppedAsync`; consumer in EVChargingApi
-- **Status:** idea
+- **Status:** applied — OCPP_RD `f8819da` (2026-11-07), EVChargingApi `d0b3b56` (2026-11-07)
 - **Why:** `StopTransaction.reason` is dropped, so a session cut by a power outage (`PowerLoss`,
   sent after the charger reboots — observed on Wallbox Copper SB) looks like a regular stop and its
   end time is when the queued message arrived (hours later), not when charging stopped. Commercial
@@ -82,7 +82,7 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 ## CB-008 · Wallbox Supernova: real OCPP behaviour (observed on a live unit)
 - **Target:** OCPP_RD (connection / StatusNotification / RemoteStart handling, Supernova adapter),
   EVChargingApi (station model, sessions, operator UI), Supernova onboarding (PR-011)
-- **Status:** idea
+- **Status:** partial — DataTransfer VehicleID autostart applied (OCPP_RD `f8819da`, EVChargingApi `d0b3b56` 2026-11-07); items 1–6 tracked by CB-011 (applied), item 8 (energy cross-check) open
 - **Source:** Wallbox Supernova 60 kW DC SN 669850, model `DCF1-211-84600000`, fw 4.6.16, connected to
   Nabla Home EVOCPP on 2026-11-04 during a repair. Everything below is what the charger itself sent —
   not vendor docs, not another backend's interpretation.
@@ -163,7 +163,7 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 ## CB-011 · Multi-connector stations: rework from "one OCPP id per connector" to "one id, N connectors"
 - **Target:** OCPP_RD (`ChargingStationConnections` / `ConnectorState`, `Communicator.cs` handlers,
   RabbitMQ events), EVChargingApi (station/connector model, sessions, wallet guard, app), PR-011
-- **Status:** idea — design input from a real charger
+- **Status:** applied (backend) — OCPP_RD + EVChargingApi correctness complete; app connector picker + OCPP_RD per-connector DB status open
 - **Why:** the commercial design assumed each connector of a multi-connector charger connects with its own OCPP id
   (`U005#1`, `U005#2`). That came from Skidata, which splits a station into parking spaces itself. A real Wallbox
   Supernova (fw 4.6.16) connects as **one** charge point `WBX669850` with `NumberOfConnectors = 2`, and its two
@@ -204,19 +204,32 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
 ## CB-012 · Reconnect race: a superseded socket takes a live station offline
 - **Target:** `OCPP_RD/OCPPServer/Program.cs` (WebSocket `finally` → `ChargingStationConnections.Remove(stationId)`,
   line ~223), `ChargingStationConnections.Add`
-- **Status:** idea
+- **Status:** applied — OCPP_RD `9744209` (2026-11-06) + `c319e2c` `RemoveIfSocket` (2026-11-07)
 - **Why:** a charger that opens a new WebSocket before the old one closed (seen on Wallbox Supernova, 2026-11-06) is
   registered under the new socket, then the old socket's `finally` removes the entry by id and publishes Offline.
   Result: the charger keeps sending (MeterValues arrive) but every command is discarded as "not connected" — RemoteStop
   of a running session failed twice — and the backend pauses / closes sessions on a false Offline.
-- **Fix:** on connect, keep the existing station state and swap the socket (abort the stale one); in `finally`
-  remove + publish disconnect only if the closing socket is still the current one (lock both).
+- **Applied part:** `ChargingStationConnections.Add()` now carries over all `ConnectorSession` objects (including
+  `PendingStart`/`PendingStop` TCS) from the old `ConnectorState` to the new one on reconnect. This fixes the
+  case where a RemoteStart-initiated session is lost because the charger reconnects before `StartTransaction` arrives.
+  Specifically: Wallbox Supernova sometimes disconnects+reconnects within 6s of entering Charging state; the
+  `PendingStart` TCS was silently dropped, causing the session to Timeout/Cancel even though the charger was charging.
+- **Remaining:** the `finally` / socket-identity check (so a stale socket disconnect doesn't publish Offline and
+  doesn't remove the new socket's state). Full fix mirrors EVOCPP `efbc0fe`.
+- **Also fixed 2026-11-06 (not a separate CB):**
+  - `EVChargingApi/StationsController.cs` — added `.OrderBy(c => c.Id)` to connector list; without it PostgreSQL
+    returned connector id=23 (OCPP connectorId=2) first, so the second physical port appeared as the first in the app.
+  - `EVChargingApi/RabbitMqConsumerService.cs` — `HandleAuthorizeRequestedAsync` returns "Accepted" for unknown EVID
+    cars (safe because `AutoChargeEnabled=false`); "Rejected" caused the charger to refuse `StartTransaction`
+    even after RemoteStart "Accepted".
+  - `Ocpp__TransactionConfirmTimeoutSeconds` needs to be set to 120 in Pi docker-compose (default 60s is too
+    short when the reconnect eats 33s of the window and isolation test takes 25–35s).
 - **Reference implementation here:** EVOCPP `efbc0fe` (+ tests in `ChargingStationConnectionsTests`).
 - **Found:** 2026-11-06.
 
 ## CB-013 · Commercial stack on the shared Pi has no memory limits (Server GC, untuned RabbitMQ)
 - **Target:** `EVChargingApi/docker-compose.yml` (services `api`, `ocpp`, `rabbitmq`, `db`, `admin`, `download`)
-- **Status:** idea
+- **Status:** applied — EVChargingApi `bc18bae` (2026-11-07)
 - **Why:** the Pi has 1 GB RAM (zram swap only compresses it). On 2026-11-06 the Pi filled swap, iowait hit 80 % and
   it rebooted in a loop until other stacks were stopped. Measured RSS+swap: `EVChargingApi.dll` 129 MB,
   `OCPPServer.dll` 113 MB, RabbitMQ 83 MB — no `mem_limit`, no GC settings (ASP.NET defaults to **Server GC**:
