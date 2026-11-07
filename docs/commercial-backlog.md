@@ -243,3 +243,16 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   - `admin` / `download` (nginx): `mem_limit: 32m`
 - **Reference here:** `deploy/docker-compose.yml`.
 - **Found:** 2026-11-06, Pi hang during the Supernova tests.
+
+## CB-014 · OCPP_RD has no Reset / ChangeAvailability commands
+- **Target:** `OCPP_RD/OCPPServer` (admin REST next to `/api/admin/plugs/{id}/config`, and/or RabbitMQ commands)
+- **Status:** idea
+- **Why:** on 2026-11-07 the Supernova's `ConnectionUrl` was set back to its owner (1up) through
+  `POST /api/admin/plugs/{id}/config` → `RebootRequired`. Without a `Reset` command it stayed on our server until a
+  reboot, and people at the parking could not charge. `ChangeAvailability` (Inoperative / Operative) is also missing:
+  it is the clean way to take a station out of service (drivers kept trying a charger marked "not working").
+- **Fix:** admin REST `POST /api/admin/plugs/{id}/reset {type: Soft|Hard}` and
+  `POST /api/admin/plugs/{id}/availability {connectorId, type: Inoperative|Operative}` (OCPP 1.6 Core), or a generic
+  whitelisted call like EVOCPP's `command.dev.call`.
+- **Reference here:** EVOCPP `DevCalls` (`Reset` whitelisted; add `ChangeAvailability` there too).
+- **Found:** 2026-11-07.
