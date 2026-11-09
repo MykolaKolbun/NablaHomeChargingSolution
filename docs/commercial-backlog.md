@@ -126,6 +126,10 @@ Format: one section per item. Status: `idea` → `planned` → `applied (commit/
   8. **Energy register unreliable on this unit** (both DC meters): power/current/SoC are live, but
      `Energy.Active.Import.Register` barely moves in MeterValues and jumps at StopTransaction — 2–3× under-count.
      A billing backend should cross-check energy against ∫power and flag sessions where they diverge.
+  9. **`DataTransfer` "VehicleID" must get a CALLRESULT `{"status":"Accepted"}`** (Wallbox, case 01213780,
+     2026-11-09). With an empty payload, an unknown messageId, a CALLERROR such as `NotSupported`, or a timeout, the
+     charger keeps retransmitting it (the ~20 s repeat we saw). Check that OCPP_RD `f8819da` answers `Accepted`.
+     Answer other vendors' DataTransfer with a CALLRESULT too (`UnknownVendorId` / `UnknownMessageId`), not a CALLERROR.
 - **Reference here:** `docs/hardware/supernova-669850.md` (all event timelines) and
   `docs/hardware/supernova-669850-config.json` (full GetConfiguration, 99 keys).
 - **Found:** 2026-11-04 / 2026-11-05.
