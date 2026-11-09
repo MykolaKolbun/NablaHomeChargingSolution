@@ -203,6 +203,20 @@ public sealed class MultiConnectorFlowTests : IDisposable
         Assert.DoesNotContain(_events, e => e.Key == "charger.status.changed");
     }
 
+    [Fact]
+    public async Task DataTransfer_gets_a_call_result_and_wallbox_vehicle_id_is_accepted()
+    {
+        await Call("DataTransfer", new { vendorId = "Wall Box Chargers", messageId = "VehicleID", data = "{\"VehicleID\":\"VID:0123456789AB\",\"connectorId\":2}" });
+        var vid = _socket.Sent.Last();
+        Assert.StartsWith("[3,", vid);
+        Assert.Contains("\"Accepted\"", vid);
+
+        await Call("DataTransfer", new { vendorId = "acme", messageId = "Foo" });
+        var other = _socket.Sent.Last();
+        Assert.StartsWith("[3,", other);
+        Assert.Contains("\"UnknownVendorId\"", other);
+    }
+
     // ── fakes ─────────────────────────────────────────────────────────────────
 
     private sealed class RecordingSocket : WebSocket

@@ -166,6 +166,10 @@ namespace OCPPServer.OCPP1._6_Models
                         await HandleDiagnosticsStatusNotification(socket, messageId, payloadCall, connectorId);
                         break;
 
+                    case "DataTransfer":
+                        await HandleDataTransfer(socket, messageId, payloadCall, connectorId);
+                        break;
+
                     default:
                         await SendCallError(socket, messageId, "NotSupported",
                             $"Action {action} not supported");
@@ -743,6 +747,28 @@ namespace OCPPServer.OCPP1._6_Models
             await SendCallResult(socket, messageId, new JObject());
 
             _ = RabbitMqPublisher.PublishDiagnosticsStatusAsync(stationId, statusStr);
+        }
+
+        /// <summary>
+        /// Charger-initiated DataTransfer. OCPP 1.6 expects a CALLRESULT with a status, never a CALLERROR.
+        /// Wallbox (case 01213780): "VehicleID" ({"VehicleID":"VID:…","connectorId":N}) must be answered
+        /// Accepted, otherwise the charger retransmits it every ~20 s. Nothing acts on the VID here yet.
+        /// </summary>
+        public async Task HandleDataTransfer(WebSocket socket, string messageId, JObject payload, string stationId)
+        {
+            var vendorId = payload["vendorId"]?.Value<string>() ?? "";
+            var dtMessageId = payload["messageId"]?.Value<string>() ?? "";
+            OcppTrace.Msg("OCPP", $"DataTransfer {stationId}: vendorId={vendorId} messageId={dtMessageId}");
+
+            string status;
+            if (dtMessageId == "VehicleID")
+                status = "Accepted";
+            else if (vendorId.Replace(" ", "").Contains("wallbox", StringComparison.OrdinalIgnoreCase))
+                status = "UnknownMessageId";   // Supernova sends vendorId "Wall Box Chargers"
+            else
+                status = "UnknownVendorId";
+
+            await SendCallResult(socket, messageId, new JObject { ["status"] = status });
         }
     }
 }
